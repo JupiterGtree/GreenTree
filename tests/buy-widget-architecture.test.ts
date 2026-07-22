@@ -258,6 +258,6 @@ test("failed first refresh remains empty and retryable", async () => {
   });
   assert.equal(await store.refresh(), null);
   assert.equal(store.getSnapshot().receivedAt, 0);
-  assert.equal(await store.refreshIfStale(), "recovered");
+  assert.equal(await store.refresh({ force: true }), "recovered");
   assert.equal(calls, 2);
 });

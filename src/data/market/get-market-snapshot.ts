@@ -9,55 +9,53 @@ import { readyData, unavailableData, type DataResult } from "@/types/data";
 import type { MarketSnapshot } from "@/types/market";
 import { isPriceSnapshotConsistent, marketSnapshotId } from "@/lib/market/price-snapshot";
 
-async function readMarketSnapshot(): Promise<DataResult<MarketSnapshot>> {
-  try {
-    const [pool, tokenState] = await Promise.all([fetchMeteoraPool(), getTokenState()]);
-    const priceUsd = pool.currentPriceSol * pool.solPriceUsd;
-    if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
-      throw new Error("Unable to derive a valid GTREE/USD price.");
-    }
+async function readVerifiedMarketSnapshot(): Promise<MarketSnapshot> {
+  const [pool, tokenState] = await Promise.all([fetchMeteoraPool(), getTokenState()]);
+  if (!tokenState.data) {
+    throw new Error(tokenState.error || "Unable to verify the GTREE mint on Solana Mainnet.");
+  }
+  const priceUsd = pool.currentPriceSol * pool.solPriceUsd;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+    throw new Error("Unable to derive a valid GTREE/USD price.");
+  }
 
-    const supply = tokenState.data ? Number(tokenState.data.supplyUi) : null;
-    const impliedValuationUsd = supply !== null && Number.isFinite(supply)
+  const supply = Number(tokenState.data.supplyUi);
+  const impliedValuationUsd = Number.isFinite(supply)
       ? priceUsd * supply
       : null;
-    const reserveLiquidityUsd = pool.tokenYAmount !== null
+  const reserveLiquidityUsd = pool.tokenYAmount !== null
       ? pool.tokenYAmount * pool.solPriceUsd * 2
       : null;
-    const liquidityUsd = pool.tvlUsd !== null && pool.tvlUsd > 0
+  const liquidityUsd = pool.tvlUsd !== null && pool.tvlUsd > 0
       ? pool.tvlUsd
       : reserveLiquidityUsd;
-    const priceAdjustmentBps = Number(resolveRuntimeSetting("priceAdjustmentBps"));
-    const referenceGtreePerSol = 1 / pool.currentPriceSol;
-    const effectiveGtreePerSol = referenceGtreePerSol * (10_000 + priceAdjustmentBps) / 10_000;
-    const fetchedAt = new Date();
-    const fetchedAtIso = fetchedAt.toISOString();
-    const referenceRate = decimalRate(referenceGtreePerSol);
-    const effectiveRate = decimalRate(effectiveGtreePerSol);
-    if (!isPriceSnapshotConsistent({
+  const priceAdjustmentBps = Number(resolveRuntimeSetting("priceAdjustmentBps"));
+  const referenceGtreePerSol = 1 / pool.currentPriceSol;
+  const effectiveGtreePerSol = referenceGtreePerSol * (10_000 + priceAdjustmentBps) / 10_000;
+  const fetchedAt = new Date();
+  const fetchedAtIso = fetchedAt.toISOString();
+  const referenceRate = decimalRate(referenceGtreePerSol);
+  const effectiveRate = decimalRate(effectiveGtreePerSol);
+  if (!isPriceSnapshotConsistent({
       solUsd: pool.solPriceUsd,
       gtreeUsd: priceUsd,
       gtreePerSol: referenceRate,
     })) {
-      console.warn(JSON.stringify({
-        event: "market_snapshot_consistency_rejected",
-        source: "meteora-pool",
-        retryable: true,
-      }));
-      return unavailableData<MarketSnapshot>(
-        "meteora-pool",
-        "Market price sources failed consistency validation.",
-      );
-    }
-    const snapshotId = marketSnapshotId({
+    console.warn(JSON.stringify({
+      event: "market_snapshot_consistency_rejected",
+      source: "meteora-pool",
+      retryable: true,
+    }));
+    throw new Error("Market price sources failed consistency validation.");
+  }
+  const snapshotId = marketSnapshotId({
       source: "Meteora DAMM v2",
       solUsd: pool.solPriceUsd,
       gtreeUsd: priceUsd,
       effectiveGtreePerSol: effectiveRate,
     });
 
-    return readyData<MarketSnapshot>(
-      {
+  return {
         snapshotId,
         gtreeUsd: priceUsd,
         solUsd: pool.solPriceUsd,
@@ -88,11 +86,18 @@ async function readMarketSnapshot(): Promise<DataResult<MarketSnapshot>> {
         sells24h: null,
         fee24hUsd: pool.fees24hUsd,
         isBlacklisted: pool.isBlacklisted,
-      },
-      "meteora-pool",
-      "solana-mainnet",
-      fetchedAtIso,
-    );
+  };
+}
+
+const getVerifiedMarketSnapshot = unstable_cache(readVerifiedMarketSnapshot, ["gtree-market-snapshot-v3"], {
+  revalidate: 15,
+  tags: ["gtree-market-snapshot"],
+});
+
+export async function getMarketSnapshot(): Promise<DataResult<MarketSnapshot>> {
+  try {
+    const snapshot = await getVerifiedMarketSnapshot();
+    return readyData(snapshot, "meteora-pool", "solana-mainnet", snapshot.fetchedAt);
   } catch (error) {
     return unavailableData<MarketSnapshot>(
       "meteora-pool",
@@ -100,11 +105,6 @@ async function readMarketSnapshot(): Promise<DataResult<MarketSnapshot>> {
     );
   }
 }
-
-export const getMarketSnapshot = unstable_cache(readMarketSnapshot, ["gtree-market-snapshot-v2"], {
-  revalidate: 15,
-  tags: ["gtree-market-snapshot"],
-});
 
 function decimalRate(value: number): string {
   if (!Number.isFinite(value) || value <= 0) throw new Error("Unable to derive a valid GTREE/SOL rate.");

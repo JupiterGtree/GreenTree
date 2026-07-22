@@ -49,10 +49,9 @@ function validAuthority(value: unknown): value is string | null {
   }
 }
 
-async function readTokenState(): Promise<DataResult<TokenState>> {
-  try {
-    new PublicKey(ENV.gtreeMint);
-    const [genesisHash, account, supply] = await Promise.all([
+async function readVerifiedTokenState(): Promise<TokenState> {
+  new PublicKey(ENV.gtreeMint);
+  const [genesisHash, account, supply] = await Promise.all([
       solanaRpc<string>("getGenesisHash", []),
       solanaRpc<ParsedMintAccount>("getAccountInfo", [
         ENV.gtreeMint,
@@ -62,60 +61,67 @@ async function readTokenState(): Promise<DataResult<TokenState>> {
         ENV.gtreeMint,
         { commitment: "finalized" },
       ]),
-    ]);
+  ]);
 
-    if (genesisHash !== MAINNET_GENESIS_HASH) {
-      throw new Error("The configured RPC endpoint is not Solana Mainnet.");
-    }
+  if (genesisHash !== MAINNET_GENESIS_HASH) {
+    throw new Error("The configured RPC endpoint is not Solana Mainnet.");
+  }
 
-    const value = account.value;
-    if (!value) throw new Error("Solana did not return the GTREE mint account.");
-    const info = value.data.parsed.info;
-    if (
-      value.owner !== CLASSIC_TOKEN_PROGRAM ||
-      value.data.parsed.type !== "mint" ||
-      !Number.isInteger(info.decimals) ||
-      info.decimals < 0 ||
-      info.decimals > 18 ||
-      typeof info.supply !== "string" ||
-      !/^\d+$/.test(info.supply) ||
-      typeof info.isInitialized !== "boolean" ||
-      !validAuthority(info.mintAuthority) ||
-      !validAuthority(info.freezeAuthority) ||
-      !/^\d+$/.test(supply.value.amount) ||
-      supply.value.amount !== info.supply ||
-      supply.value.decimals !== info.decimals ||
-      typeof supply.value.uiAmountString !== "string"
-    ) {
-      throw new Error("Solana returned an invalid GTREE mint account.");
-    }
+  const value = account.value;
+  if (!value) throw new Error("Solana did not return the GTREE mint account.");
+  const info = value.data.parsed.info;
+  if (
+    value.owner !== CLASSIC_TOKEN_PROGRAM ||
+    value.data.parsed.type !== "mint" ||
+    !Number.isInteger(info.decimals) ||
+    info.decimals < 0 ||
+    info.decimals > 18 ||
+    typeof info.supply !== "string" ||
+    !/^\d+$/.test(info.supply) ||
+    typeof info.isInitialized !== "boolean" ||
+    !validAuthority(info.mintAuthority) ||
+    !validAuthority(info.freezeAuthority) ||
+    !/^\d+$/.test(supply.value.amount) ||
+    supply.value.amount !== info.supply ||
+    supply.value.decimals !== info.decimals ||
+    typeof supply.value.uiAmountString !== "string"
+  ) {
+    throw new Error("Solana returned an invalid GTREE mint account.");
+  }
 
-    const maximumSupplyUi = PROJECT.maxSupply.toString();
-    return readyData<TokenState>(
-      {
-        network: "solana-mainnet",
-        mint: ENV.gtreeMint,
-        name: PROJECT.name,
-        symbol: PROJECT.token,
-        tokenProgram: value.owner,
-        standard: PROJECT.tokenStandard,
-        decimals: info.decimals,
-        supplyRaw: supply.value.amount,
-        supplyUi: supply.value.uiAmountString,
-        maximumSupplyUi,
-        isInitialized: info.isInitialized,
-        fixedSupplyVerified: info.mintAuthority === null && supply.value.uiAmountString === maximumSupplyUi,
-        mintAuthority: {
-          address: info.mintAuthority,
-          status: info.mintAuthority === null ? "revoked" : "active",
-        },
-        freezeAuthority: {
-          address: info.freezeAuthority,
-          status: info.freezeAuthority === null ? "revoked" : "active",
-        },
-      },
-      "solana-rpc",
-    );
+  const maximumSupplyUi = PROJECT.maxSupply.toString();
+  return {
+    network: "solana-mainnet",
+    mint: ENV.gtreeMint,
+    name: PROJECT.name,
+    symbol: PROJECT.token,
+    tokenProgram: value.owner,
+    standard: PROJECT.tokenStandard,
+    decimals: info.decimals,
+    supplyRaw: supply.value.amount,
+    supplyUi: supply.value.uiAmountString,
+    maximumSupplyUi,
+    isInitialized: info.isInitialized,
+    fixedSupplyVerified: info.mintAuthority === null && supply.value.uiAmountString === maximumSupplyUi,
+    mintAuthority: {
+      address: info.mintAuthority,
+      status: info.mintAuthority === null ? "revoked" : "active",
+    },
+    freezeAuthority: {
+      address: info.freezeAuthority,
+      status: info.freezeAuthority === null ? "revoked" : "active",
+    },
+  };
+}
+
+const getVerifiedTokenState = unstable_cache(readVerifiedTokenState, ["gtree-token-state-v2"], {
+  revalidate: 3_600,
+  tags: ["gtree-token-state"],
+});
+
+export async function getTokenState(): Promise<DataResult<TokenState>> {
+  try {
+    return readyData(await getVerifiedTokenState(), "solana-rpc");
   } catch (error) {
     return unavailableData<TokenState>(
       "solana-rpc",
@@ -123,8 +129,3 @@ async function readTokenState(): Promise<DataResult<TokenState>> {
     );
   }
 }
-
-export const getTokenState = unstable_cache(readTokenState, ["gtree-token-state-v1"], {
-  revalidate: 3_600,
-  tags: ["gtree-token-state"],
-});

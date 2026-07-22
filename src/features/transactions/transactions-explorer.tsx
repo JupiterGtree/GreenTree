@@ -14,7 +14,7 @@ import { RelativeTime } from "@/components/shared/relative-time";
 import { createActivityRequestGuard } from "@/lib/market/onchain-activity-client";
 import { isDisplayableActivityRecord } from "@/lib/market/onchain-activity-client";
 
-const REFRESH_INTERVAL_MS = 15_000;
+const REFRESH_INTERVAL_MS = 60_000;
 
 interface ActivityApiResponse {
   records?: OnchainActivityRecord[];

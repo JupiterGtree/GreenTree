@@ -95,7 +95,15 @@ test("generated fetch time does not change the economic snapshot identity", () =
 
 test("actual response envelope normalizes mixed USD types without coercing rates", () => {
   const data = snapshot();
-  const envelope = { ...ready(data), data: { ...data, solUsd: "90", gtreeUsd: "0.0600" } };
+  const envelope = {
+    ...ready(data),
+    data: {
+      ...data,
+      expiresAt: new Date(Date.now() + 20_000).toISOString(),
+      solUsd: "90",
+      gtreeUsd: "0.0600",
+    },
+  };
   const normalized = normalizeMarketSnapshotEnvelope(envelope);
   assert.equal(normalized.data?.solUsd, 90);
   assert.equal(normalized.data?.gtreeUsd, 0.06);
@@ -112,6 +120,13 @@ test("response boundary rejects missing, zero, and non-string rates", () => {
     ...ready(snapshot()),
     data: { ...snapshot(), effectiveGtreePerSol: 1500 },
   }), /invalid prices or rates/);
+});
+
+test("an expired server response is never accepted as a fresh client snapshot", () => {
+  assert.throws(() => normalizeMarketSnapshotEnvelope({
+    ...ready(snapshot()),
+    data: snapshot({ expiresAt: new Date(Date.now() - 1).toISOString() }),
+  }), /Live market snapshot is unavailable/);
 });
 
 test("stale and missing snapshots cannot enter Review", () => {
@@ -141,6 +156,7 @@ test("history uses the canonical snapshot and exposes its identity", () => {
   assert.match(chart, /getPriceHistory\(quote, range, snapshotId\)/);
   assert.match(chart, /result\.snapshotId !== snapshotId/);
   assert.match(chart, /view\.history\.snapshotId === snapshotId/);
+  assert.doesNotMatch(chart, /markMarketSnapshotStale|refresh\(\{ force: true \}\)/);
 });
 
 test("runtime market and buy paths contain no fixed 89-dollar fallback", () => {
@@ -160,6 +176,7 @@ test("input changes stay local and only Review requests an authoritative quote",
   const updateInput = source.slice(source.indexOf("function updateSolInput"), source.indexOf("function updateSlippage"));
   assert.doesNotMatch(updateInput, /getQuote|requestQuoteForReview/);
   assert.match(source, /onClick=\{\(\) => connected \? canReview && requestQuoteForReview\(\) : openDialog\(\)\}/);
+  assert.match(source, /!marketSnapshotReviewable/);
 });
 
 test("shared polling pauses while hidden and refreshes on focus or visibility", () => {

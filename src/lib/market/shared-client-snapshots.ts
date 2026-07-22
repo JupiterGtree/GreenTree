@@ -9,6 +9,8 @@ import {
 } from "@/lib/market/price-snapshot";
 
 export const SHARED_SNAPSHOT_REFRESH_MS = 20_000;
+const MARKET_SNAPSHOT_REFRESH_CHECK_MS = 5_000;
+const MARKET_SNAPSHOT_REFRESH_LEAD_MS = 5_000;
 const RETRY_BACKOFF_INITIAL_MS = 5_000;
 const RETRY_BACKOFF_MAX_MS = 120_000;
 
@@ -21,6 +23,8 @@ export interface SharedSnapshotState<T> {
 
 type FetchSnapshot<T> = (signal: AbortSignal) => Promise<T>;
 type MarkRefreshFailure<T> = (previous: T, error: string) => T;
+type ShouldRefresh<T> = (value: T, now: number) => boolean;
+type ShouldReplace<T> = (current: T, next: T) => boolean;
 
 export class SharedClientSnapshot<T> {
   private state: SharedSnapshotState<T> = { value: null, loading: false, error: null, receivedAt: 0 };
@@ -37,6 +41,8 @@ export class SharedClientSnapshot<T> {
     private readonly refreshMs = SHARED_SNAPSHOT_REFRESH_MS,
     private readonly now: () => number = Date.now,
     private readonly markRefreshFailure?: MarkRefreshFailure<T>,
+    private readonly shouldRefresh?: ShouldRefresh<T>,
+    private readonly shouldReplace?: ShouldReplace<T>,
   ) {}
 
   getSnapshot = () => this.state;
@@ -58,7 +64,10 @@ export class SharedClientSnapshot<T> {
   }
 
   isStale() {
-    return this.state.receivedAt === 0 || this.now() - this.state.receivedAt >= this.refreshMs;
+    return this.state.receivedAt === 0 ||
+      (this.state.value !== null && this.shouldRefresh
+        ? this.shouldRefresh(this.state.value, this.now())
+        : this.now() - this.state.receivedAt >= this.refreshMs);
   }
 
   refreshIfStale() {
@@ -77,7 +86,10 @@ export class SharedClientSnapshot<T> {
 
     this.request = this.fetchSnapshot(this.controller.signal)
       .then((value) => {
-        this.state = { value, loading: false, error: null, receivedAt: this.now() };
+        const shouldReplace = this.state.value === null || !this.shouldReplace || this.shouldReplace(this.state.value, value);
+        this.state = shouldReplace
+          ? { value, loading: false, error: null, receivedAt: this.now() }
+          : { ...this.state, loading: false, error: null };
         this.retryAfter = 0;
         this.consecutiveFailures = 0;
         this.emit();
@@ -185,9 +197,17 @@ const marketSnapshot = new SharedClientSnapshot<DataResult<MarketSnapshot>>(
       throw error;
     }
   },
-  SHARED_SNAPSHOT_REFRESH_MS,
+  MARKET_SNAPSHOT_REFRESH_CHECK_MS,
   Date.now,
   (previous, error) => markMarketSnapshotStale(previous, error),
+  (value, now) => {
+    const expiresAt = value.data ? Date.parse(value.data.expiresAt) : Number.NaN;
+    return !Number.isFinite(expiresAt) || expiresAt <= now + MARKET_SNAPSHOT_REFRESH_LEAD_MS;
+  },
+  (current, next) => {
+    if (!current.data || !next.data || current.data.sourceStatus !== "LIVE") return true;
+    return Date.parse(next.data.expiresAt) >= Date.parse(current.data.expiresAt);
+  },
 );
 const foundationInventory = new SharedClientSnapshot<FoundationInventorySnapshot>(
   (signal) => fetchJson("/api/foundation/inventory", signal),

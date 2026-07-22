@@ -147,6 +147,7 @@ export function normalizeMarketSnapshotEnvelope(value: unknown): MarketSnapshotE
       effectiveGtreePerSol,
       sourceTimestamp: snapshot.sourceTimestamp,
     }) ||
+    isMarketSnapshotExpired(snapshot) ||
     !isPriceSnapshotConsistent(snapshot)
   ) {
     throw new Error(
