@@ -9,6 +9,8 @@ import {
 } from "@/lib/market/price-snapshot";
 
 export const SHARED_SNAPSHOT_REFRESH_MS = 20_000;
+const RETRY_BACKOFF_INITIAL_MS = 5_000;
+const RETRY_BACKOFF_MAX_MS = 120_000;
 
 export interface SharedSnapshotState<T> {
   value: T | null;
@@ -24,9 +26,11 @@ export class SharedClientSnapshot<T> {
   private state: SharedSnapshotState<T> = { value: null, loading: false, error: null, receivedAt: 0 };
   private readonly serverState: SharedSnapshotState<T> = { value: null, loading: false, error: null, receivedAt: 0 };
   private listeners = new Set<() => void>();
-  private request: Promise<T> | null = null;
+  private request: Promise<T | null> | null = null;
   private controller: AbortController | null = null;
   private interval: number | null = null;
+  private retryAfter = 0;
+  private consecutiveFailures = 0;
 
   constructor(
     private readonly fetchSnapshot: FetchSnapshot<T>,
@@ -59,11 +63,14 @@ export class SharedClientSnapshot<T> {
 
   refreshIfStale() {
     if (typeof document !== "undefined" && document.hidden) return Promise.resolve(this.state.value);
+    if (this.now() < this.retryAfter) return Promise.resolve(this.state.value);
     return this.isStale() ? this.refresh() : Promise.resolve(this.state.value);
   }
 
-  refresh(): Promise<T | null> {
+  refresh(options: { force?: boolean } = {}): Promise<T | null> {
     if (this.request) return this.request;
+    if (!options.force && this.now() < this.retryAfter) return Promise.resolve(this.state.value);
+    if (!options.force && typeof document !== "undefined" && document.hidden) return Promise.resolve(this.state.value);
     this.controller = new AbortController();
     this.state = { ...this.state, loading: true, error: null };
     this.emit();
@@ -71,6 +78,8 @@ export class SharedClientSnapshot<T> {
     this.request = this.fetchSnapshot(this.controller.signal)
       .then((value) => {
         this.state = { value, loading: false, error: null, receivedAt: this.now() };
+        this.retryAfter = 0;
+        this.consecutiveFailures = 0;
         this.emit();
         return value;
       })
@@ -85,6 +94,11 @@ export class SharedClientSnapshot<T> {
             loading: false,
             error: message,
           };
+          this.consecutiveFailures += 1;
+          this.retryAfter = this.now() + Math.min(
+            RETRY_BACKOFF_INITIAL_MS * 2 ** (this.consecutiveFailures - 1),
+            RETRY_BACKOFF_MAX_MS,
+          );
           this.emit();
         }
         return this.state.value as T;
@@ -193,5 +207,5 @@ export function useSharedFoundationInventory() {
     foundationInventory.getSnapshot,
     foundationInventory.getServerSnapshot,
   );
-  return { ...state, refresh: foundationInventory.refresh.bind(foundationInventory) };
+  return { ...state, refresh: () => foundationInventory.refresh({ force: true }) };
 }
