@@ -414,8 +414,11 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
         }
 
         const preparedTransaction = decodeTransaction(payload.transaction);
-        const preparedMessage = preparedTransaction.message.serialize();
-        const signedTransaction = await signTransaction(preparedTransaction);
+        // Snapshot a byte copy, then hand the wallet a separate transaction instance.
+        // Some injected providers mutate the object passed to signTransaction.
+        const preparedMessage = Uint8Array.from(preparedTransaction.message.serialize());
+        const transactionForWallet = VersionedTransaction.deserialize(preparedTransaction.serialize());
+        const signedTransaction = await signTransaction(transactionForWallet);
         if (!sameBytes(preparedMessage, signedTransaction.message.serialize())) {
           throw new Error("Your wallet returned a transaction whose approved contents changed. Request a new quote and try again.");
         }
