@@ -9,7 +9,10 @@ curl -fsS http://127.0.0.1:3000/ >/dev/null
 for route in / /news /contact /telegram /admin/login; do curl -fsS "$BASE$route" >/dev/null; done
 meta=$(curl -fsS "$BASE/assets/token/metadata.json")
 node -e 'const x=JSON.parse(process.argv[1]);if(x.image!=="https://gtree.land/assets/token/green-tree-token-logo.png")process.exit(1)' "$meta"
-curl -fsS "$BASE/assets/token/green-tree-token-logo.png" | head -c 8 | cmp - <(printf '\211PNG\r\n\032\n')
+png=$(mktemp)
+trap 'rm -f "$png"' EXIT
+curl -fsS "$BASE/assets/token/green-tree-token-logo.png" -o "$png"
+head -c 8 "$png" | cmp - <(printf '\211PNG\r\n\032\n')
 sudo -u greentree -H test -w "$(dirname "${ADMIN_DB_PATH:-/var/lib/greentree/admin.db}")"
 sudo -u greentree -H test -w /var/lib/greentree
 ! pgrep -fa 'getUpdates|telegram.*poll' >/dev/null
