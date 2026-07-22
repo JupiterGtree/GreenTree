@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import {
+  ComputeBudgetProgram,
   Keypair,
   PublicKey,
   SystemProgram,
@@ -44,6 +45,7 @@ function recordFor(transaction: VersionedTransaction, buyer: Keypair, saleSigner
     buyer: buyer.publicKey.toBase58(),
     saleSignerPublicKey: saleSigner.publicKey.toBase58(),
     transactionMessageHash: createHash("sha256").update(transaction.message.serialize()).digest("hex"),
+    serializedTransaction: Buffer.from(transaction.serialize()).toString("base64"),
   };
 }
 
@@ -60,7 +62,7 @@ test("a modified Foundation transaction cannot be relayed", () => {
   const serialized = Buffer.from(modified.transaction.serialize()).toString("base64");
   assert.throws(
     () => decodeAndVerifyBuyerSignedFoundationSubmission(serialized, recordFor(prepared.transaction, prepared.buyer, prepared.saleSigner)),
-    /does not match the prepared quote/,
+    /changed the approved blockhash/,
   );
 });
 
@@ -94,6 +96,56 @@ test("a pre-existing Foundation signature is rejected before buyer submission", 
       recordFor(transaction, buyer, saleSigner),
     ),
     /delegate signature must be added only after buyer approval/,
+  );
+});
+
+test("Phantom Lighthouse guards are accepted only when every approved instruction remains intact", () => {
+  const { buyer, saleSigner, transaction } = preparedTransaction();
+  const originalInstructions = TransactionMessage.decompile(transaction.message).instructions;
+  const lighthouseProgram = new PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95");
+  const guardedMessage = new TransactionMessage({
+    payerKey: buyer.publicKey,
+    recentBlockhash: transaction.message.recentBlockhash,
+    instructions: [
+      ...originalInstructions,
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+      new TransactionInstruction({
+        programId: lighthouseProgram,
+        keys: [{ pubkey: buyer.publicKey, isSigner: false, isWritable: false }],
+        data: Buffer.from([0]),
+      }),
+    ],
+  }).compileToV0Message();
+  const guarded = new VersionedTransaction(guardedMessage);
+  guarded.sign([buyer]);
+
+  const verified = decodeAndVerifyBuyerSignedFoundationSubmission(
+    Buffer.from(guarded.serialize()).toString("base64"),
+    recordFor(transaction, buyer, saleSigner),
+  );
+  assert.equal(verified.signatures[0].every((byte) => byte === 0), false);
+  assert.equal(verified.signatures[1].every((byte) => byte === 0), true);
+});
+
+test("a wallet augmentation cannot add another System transfer", () => {
+  const { buyer, saleSigner, transaction } = preparedTransaction();
+  const originalInstructions = TransactionMessage.decompile(transaction.message).instructions;
+  const modifiedMessage = new TransactionMessage({
+    payerKey: buyer.publicKey,
+    recentBlockhash: transaction.message.recentBlockhash,
+    instructions: [
+      ...originalInstructions,
+      SystemProgram.transfer({ fromPubkey: buyer.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 }),
+    ],
+  }).compileToV0Message();
+  const modified = new VersionedTransaction(modifiedMessage);
+  modified.sign([buyer]);
+  assert.throws(
+    () => decodeAndVerifyBuyerSignedFoundationSubmission(
+      Buffer.from(modified.serialize()).toString("base64"),
+      recordFor(transaction, buyer, saleSigner),
+    ),
+    /unapproved instruction/,
   );
 });
 

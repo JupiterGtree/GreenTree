@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
+import { createHash } from "node:crypto";
 import { resolveRuntimeSetting } from "@/lib/admin/runtime-settings";
 import {
   createFoundationConnection,
@@ -76,6 +77,10 @@ export async function POST(request: Request) {
     const transitioned = await store.transitionQuoteStatus?.(body.quoteId, ["BUILT"], "SUBMITTED", {
       tx_signature: signature,
       submitted_at: Date.now(),
+      // Phantom can add verified Lighthouse guard instructions after the buyer
+      // signs. Persist the final approved message for settlement verification.
+      serialized_transaction: Buffer.from(transaction.serialize()).toString("base64"),
+      transaction_message_hash: createHash("sha256").update(transaction.message.serialize()).digest("hex"),
     });
     if (!transitioned) throw new Error("Purchase submission state changed before it could be recorded.");
     return NextResponse.json({ signature, status: "SUBMITTED" });

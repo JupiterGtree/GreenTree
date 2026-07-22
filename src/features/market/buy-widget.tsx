@@ -420,13 +420,16 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
         const transactionForWallet = VersionedTransaction.deserialize(preparedTransaction.serialize());
         const signedTransaction = await signTransaction(transactionForWallet);
         if (!sameBytes(preparedMessage, signedTransaction.message.serialize())) {
-          console.error("[Foundation Direct] Wallet returned a changed transaction message", {
+          // Phantom may add Lighthouse guard instructions after signing. The
+          // protected server endpoint accepts only that documented, narrowly
+          // validated augmentation and rejects every business-instruction or
+          // account change before adding the Foundation delegate signature.
+          console.info("[Foundation Direct] Wallet added transaction guards; server will validate them", {
             difference: describeMessageDifference(preparedMessage, signedTransaction.message.serialize()),
             semanticDifference: describeSemanticDifference(preparedTransaction, signedTransaction),
             prepared: describeTransaction(preparedTransaction),
             walletReturned: describeTransaction(signedTransaction),
           });
-          throw new Error("Your wallet returned a transaction whose approved contents changed. Request a new quote and try again.");
         }
         const submitResponse = await fetch("/api/foundation/submit", {
           method: "POST",
