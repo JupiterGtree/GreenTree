@@ -116,7 +116,7 @@ test("foundation direct purchase works when buyer ATA already exists", async () 
   assert.equal((await state.client.getBalance(state.treasury.publicKey)) - state.initialTreasuryLamports, PURCHASE_LAMPORTS);
 });
 
-test("mutating a partially signed transaction invalidates the sale signer signature", async () => {
+test("transaction presented to the buyer has no Foundation signature and requires buyer-first signing", async () => {
   const state = await setupSale();
   const built = await buildPurchase(state);
   const original = VersionedTransaction.deserialize(
@@ -133,37 +133,24 @@ test("mutating a partially signed transaction invalidates the sale signer signat
     "sale signer must be a required signer",
   );
 
-  const originalSaleSignature = original.signatures[saleSignerIndex];
-
   assert.equal(
-    verifyEd25519Signature(
-      state.saleSigner.publicKey,
-      original.message.serialize(),
-      originalSaleSignature,
-    ),
+    original.signatures[saleSignerIndex].every((byte) => byte === 0),
     true,
-    "the original server signature must be valid",
+    "Phantom must receive no existing Foundation delegate signature",
   );
+  assert(original.message.staticAccountKeys[0].equals(state.buyer.publicKey), "buyer must be the fee payer signer");
 
-  const tampered = VersionedTransaction.deserialize(
-    Buffer.from(built.serializedTransaction, "base64"),
-  );
-  const lastInstruction =
-    tampered.message.compiledInstructions[
-      tampered.message.compiledInstructions.length - 1
-    ];
-
-  lastInstruction.data[0] ^= 1;
-  tampered.sign([state.buyer]);
-
+  original.sign([state.buyer]);
   assert.equal(
-    verifyEd25519Signature(
-      state.saleSigner.publicKey,
-      tampered.message.serialize(),
-      tampered.signatures[saleSignerIndex],
-    ),
-    false,
-    "changing the signed message must invalidate the existing sale signer signature",
+    verifyEd25519Signature(state.buyer.publicKey, original.message.serialize(), original.signatures[0]),
+    true,
+    "buyer signs the exact approved message first",
+  );
+  original.sign([state.saleSigner]);
+  assert.equal(
+    verifyEd25519Signature(state.saleSigner.publicKey, original.message.serialize(), original.signatures[saleSignerIndex]),
+    true,
+    "Foundation signs only after the buyer approval",
   );
 });
 
@@ -496,11 +483,13 @@ async function drainSaleInventory(state: Awaited<ReturnType<typeof setupSale>>) 
 
 async function signAndProcess(state: Awaited<ReturnType<typeof setupSale>>, transaction: VersionedTransaction, buyer: Keypair) {
   transaction.sign([buyer]);
+  transaction.sign([state.saleSigner]);
   await state.client.processTransaction(transaction);
 }
 
 async function signAndTry(state: Awaited<ReturnType<typeof setupSale>>, transaction: VersionedTransaction, buyer: Keypair) {
   transaction.sign([buyer]);
+  transaction.sign([state.saleSigner]);
   const result = await state.client.tryProcessTransaction(transaction);
   assert(result.result, "transaction should fail");
   return result;

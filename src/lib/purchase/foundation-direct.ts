@@ -353,7 +353,10 @@ export async function createFoundationDirectPurchase(
     instructions,
   }).compileToV0Message();
   const transaction = new VersionedTransaction(message);
-  transaction.sign([config.saleSigner]);
+  // Deliberately do not apply the Foundation delegate signature here. The buyer
+  // must be the first signer presented to Phantom; after the buyer signs this
+  // exact message, the protected submission endpoint verifies it and adds the
+  // delegate signature without changing the message bytes.
   const serialized = Buffer.from(transaction.serialize()).toString("base64");
   return {
     transaction,

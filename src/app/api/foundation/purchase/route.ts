@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { createHash } from "node:crypto";
 import { resolveRuntimeSetting } from "@/lib/admin/runtime-settings";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/lib/purchase/foundation-direct-server";
 import { createFoundationDirectPurchase } from "@/lib/purchase/foundation-direct";
 import { verifyFoundationQuoteToken } from "@/lib/purchase/foundation-quote-token";
+import { assertFoundationSimulationSucceeded } from "@/lib/purchase/foundation-submission";
 
 export async function POST(request: Request) {
   try {
@@ -51,14 +52,17 @@ export async function POST(request: Request) {
       throw new Error("This quote is bound to a different buyer.");
     }
 
-    // If already BUILT, return the exact same byte-identical partially-signed transaction
+    // If already BUILT, return the exact same byte-identical buyer-first transaction.
     if (quoteRecord.status === "BUILT") {
       if (quoteRecord.expiresAt <= Date.now()) {
         await store.transitionQuoteStatus?.(verifiedQuote.quoteId, ["BUILT"], "EXPIRED");
         throw new Error("This quote has expired.");
       }
+      if (quoteRecord.serializedTransaction && hasLegacyDelegateSignature(quoteRecord.serializedTransaction, config.saleSigner.publicKey)) {
+        await store.transitionQuoteStatus?.(verifiedQuote.quoteId, ["BUILT"], "EXPIRED");
+        throw new Error("This purchase was prepared with a legacy signing order. Request a new quote.");
+      }
 
-      const buyerAta = quoteRecord.saleTokenAccount ? quoteRecord.buyer : ""; // ATA path computed client-side
       return NextResponse.json({
         transaction: quoteRecord.serializedTransaction,
         transactionType: "foundation-direct",
@@ -119,6 +123,15 @@ export async function POST(request: Request) {
       new SolanaFoundationPurchaseReader(createFoundationConnection()),
     );
 
+    // Phantom receives a fresh, simulation-validated message with no Foundation
+    // signature. It signs first; the protected submit endpoint appends only the
+    // delegate signature without altering the message.
+    const preSignSimulation = await connection.simulateTransaction(purchase.transaction, {
+      sigVerify: false,
+      commitment: "confirmed",
+    });
+    assertFoundationSimulationSucceeded(preSignSimulation);
+
     // Calculate SHA-256 message hash over exact VersionedMessage bytes
     const msgBytes = purchase.transaction.message.serialize();
     const msgHash = createHash("sha256").update(msgBytes).digest("hex");
@@ -158,5 +171,18 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : "Foundation purchase preparation failed." },
       { status: 422 },
     );
+  }
+}
+
+function hasLegacyDelegateSignature(serializedTransaction: string, saleSigner: PublicKey): boolean {
+  try {
+    const transaction = VersionedTransaction.deserialize(Buffer.from(serializedTransaction, "base64"));
+    const delegateIndex = transaction.message.staticAccountKeys
+      .slice(0, transaction.message.header.numRequiredSignatures)
+      .findIndex((key) => key.equals(saleSigner));
+    return delegateIndex >= 0 && !transaction.signatures[delegateIndex].every((byte) => byte === 0);
+  } catch {
+    // An unreadable stored transaction is not safe to reuse.
+    return true;
   }
 }

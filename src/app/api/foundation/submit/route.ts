@@ -5,7 +5,11 @@ import {
   createFoundationConnection,
   createFoundationDirectConfig,
 } from "@/lib/purchase/foundation-direct-server";
-import { decodeAndVerifyFoundationSubmission } from "@/lib/purchase/foundation-submission";
+import {
+  addAndVerifyFoundationDelegateSignature,
+  assertFoundationSimulationSucceeded,
+  decodeAndVerifyBuyerSignedFoundationSubmission,
+} from "@/lib/purchase/foundation-submission";
 
 export async function POST(request: Request) {
   try {
@@ -46,8 +50,25 @@ export async function POST(request: Request) {
       throw new Error("The prepared Foundation transaction no longer matches the active sale configuration.");
     }
 
-    const transaction = decodeAndVerifyFoundationSubmission(body.transaction, quote);
-    const signature = await createFoundationConnection().sendRawTransaction(transaction.serialize(), {
+    if (!quote.lastValidBlockHeight) {
+      throw new Error("The prepared purchase is missing its blockhash validity window.");
+    }
+    const connection = createFoundationConnection();
+    const currentBlockHeight = await connection.getBlockHeight("confirmed");
+    if (currentBlockHeight > quote.lastValidBlockHeight) {
+      await store.transitionQuoteStatus?.(body.quoteId, ["BUILT"], "EXPIRED");
+      throw new Error("This quote blockhash has expired. Request a new quote.");
+    }
+
+    const transaction = decodeAndVerifyBuyerSignedFoundationSubmission(body.transaction, quote);
+    addAndVerifyFoundationDelegateSignature(transaction, config.saleSigner);
+    const simulation = await connection.simulateTransaction(transaction, {
+      sigVerify: false,
+      commitment: "confirmed",
+    });
+    assertFoundationSimulationSucceeded(simulation);
+
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
       skipPreflight: false,
       maxRetries: 2,
       preflightCommitment: "confirmed",
