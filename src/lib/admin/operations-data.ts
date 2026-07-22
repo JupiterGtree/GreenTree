@@ -2,6 +2,7 @@ import "server-only";
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { ensureFoundationSaleLedger } from "@/lib/purchase/foundation-direct-db";
 
 // @ts-expect-error node:sqlite is available in Node 22.5+, ahead of configured Node 20 types.
 import { DatabaseSync } from "node:sqlite";
@@ -83,12 +84,20 @@ const VIEW_STATES: Record<FoundationTransactionView, FoundationTransactionState[
 
 export function getFoundationTransactions(
   filters: TransactionFilters = {},
-  databasePath = resolve(process.cwd(), "data", "foundation-sale.db"),
+  databasePath?: string,
 ): FoundationTransactionResult {
-  if (!existsSync(databasePath)) return { available: false, reason: "Unavailable" };
+  const resolvedDatabasePath = databasePath ?? resolve(process.cwd(), "data", "foundation-sale.db");
+  if (!databasePath && !existsSync(resolvedDatabasePath)) {
+    try {
+      ensureFoundationSaleLedger();
+    } catch {
+      return { available: false, reason: "Unavailable" };
+    }
+  }
+  if (!existsSync(resolvedDatabasePath)) return { available: false, reason: "Unavailable" };
   let database: InstanceType<typeof DatabaseSync> | undefined;
   try {
-    database = new DatabaseSync(databasePath, { readOnly: true });
+    database = new DatabaseSync(resolvedDatabasePath, { readOnly: true });
     database.exec("PRAGMA query_only = ON; PRAGMA busy_timeout = 2000;");
     const table = database.prepare(
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'quotes'",
@@ -185,7 +194,7 @@ export function getFoundationTransactions(
 }
 
 export function getFoundationQuoteSummary(
-  databasePath = resolve(process.cwd(), "data", "foundation-sale.db"),
+  databasePath?: string,
 ): {
   available: true;
   total: number;
@@ -198,11 +207,12 @@ export function getFoundationQuoteSummary(
   latestFailed: FoundationTransaction | null;
 }
   | { available: false; reason: "Unavailable" } {
+  const resolvedDatabasePath = databasePath ?? resolve(process.cwd(), "data", "foundation-sale.db");
   const result = getFoundationTransactions({ view: "ALL", page: 1, pageSize: 1 }, databasePath);
   if (!result.available) return result;
   let database: InstanceType<typeof DatabaseSync> | undefined;
   try {
-    database = new DatabaseSync(databasePath, { readOnly: true });
+    database = new DatabaseSync(resolvedDatabasePath, { readOnly: true });
     database.exec("PRAGMA query_only = ON; PRAGMA busy_timeout = 2000;");
     const rows = database.prepare(
       "SELECT input_lamports, output_token_units FROM quotes WHERE status = 'CONFIRMED'",

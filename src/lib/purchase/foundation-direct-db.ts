@@ -416,6 +416,15 @@ export class SQLiteFoundationSaleControlStore implements FoundationSaleControlSt
   }
 }
 
+/**
+ * Creates and migrates the canonical Foundation sale ledger when it has not
+ * been initialized yet. Production maps the application data path to the
+ * persistent Foundation database; this helper never selects another path.
+ */
+export function ensureFoundationSaleLedger(): void {
+  new SQLiteFoundationSaleControlStore();
+}
+
 function finiteDecimal(value: number | null | undefined): string | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : null;
 }
