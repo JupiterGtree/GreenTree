@@ -1,0 +1,15 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { hasAdminPermission } from "@/lib/admin/permissions";
+import { getCurrentAdminSession } from "@/lib/admin/request";
+import { SUPPORT_STATUSES, getSupportRepository, type SupportStatus } from "@/lib/support/repository";
+
+export const dynamic = "force-dynamic";
+export default async function AdminSupportPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+  const session = await getCurrentAdminSession(); if (!session) redirect("/admin/login"); if (!hasAdminPermission(session.user.role, "support.read")) redirect("/admin");
+  const query = await searchParams; const status = SUPPORT_STATUSES.includes(query.status as SupportStatus) ? query.status as SupportStatus : undefined;
+  const result = getSupportRepository().list({ query: query.q, status });
+  return <section><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="font-mono text-xs uppercase tracking-[0.18em] text-gt-emerald-bright">Customer inbox</p><h1 className="mt-2 text-3xl font-semibold">Support</h1><p className="mt-2 text-sm text-gt-muted">{result.total} submitted support request{result.total === 1 ? "" : "s"}.</p></div></div><form className="mt-7 grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]"><Input name="q" defaultValue={query.q} placeholder="Tracking code, name, email, or message"/><select name="status" defaultValue={status ?? ""} className="rounded-md border border-gt-border bg-gt-surface px-3 text-sm"><option value="">All statuses</option>{SUPPORT_STATUSES.map((item) => <option key={item}>{item}</option>)}</select><Button type="submit">Filter</Button></form><div className="mt-7 overflow-x-auto rounded-lg border border-gt-border"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-gt-surface text-xs uppercase tracking-wide text-gt-muted"><tr><th className="p-3">Tracking code</th><th className="p-3">Requester</th><th className="p-3">Channel</th><th className="p-3">Topic</th><th className="p-3">Status</th><th className="p-3">Submitted</th></tr></thead><tbody>{result.items.map((item) => <tr key={item.id} className="border-t border-gt-border hover:bg-gt-surface/40"><td className="p-3"><Link href={`/admin/support/${item.id}`} className="font-mono font-medium text-gt-emerald-bright">{item.unread && <span className="mr-2 inline-block size-2 rounded-full bg-gt-info" aria-label="Unread" />}{item.requestNumber}</Link></td><td className="p-3"><p className="font-medium">{item.requesterName}</p><p className="text-xs text-gt-muted">{item.replyEmail}</p></td><td className="p-3 text-gt-muted">{item.channel}</td><td className="p-3 text-gt-muted">{item.topic}</td><td className="p-3">{item.status}</td><td className="p-3 text-gt-muted">{new Date(item.submittedAt).toLocaleString()}</td></tr>)}{!result.items.length && <tr><td colSpan={6} className="p-10 text-center text-gt-muted">No support requests have been received.</td></tr>}</tbody></table></div></section>;
+}

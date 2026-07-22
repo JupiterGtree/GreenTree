@@ -1,0 +1,67 @@
+    TITLE_TEXT:
+    خصوصیات مادر ایرانی
+
+    TITLE_TEXT_COLOR:
+    white
+    TITLE_BORDER_COLOR:
+    #0038A8
+    TITLE_BORDER_THICKNESS:
+    Thick
+
+    TITLE_BORDER_STYLE:
+    Layered 3D comic-style outline with clean dimensional depth
+
+    TITLE_SHADOW_COLOR:
+    Soft dark navy shadow
+
+    CHARACTER_COUNT:
+    2
+
+    CHARACTER_LAYOUT:
+    Place both characters side by side at equal visual size.
+    Move the complete character group approximately 10% lower than the reference composition.
+
+    ADDITIONAL_ELEMENTS:
+    Minimal white and blue comic accents:
+    small stars, subtle motion lines, and tiny sparkle details.
+    No emojis.
+    No subtitle.
+    No title background panel.
+
+    DESIGN_MOOD:
+    Warm, playful, modern Persian comedy Instagram Reels cover.
+
+
+    IMPORTANT COLOR INSTRUCTION:
+
+    The title lettering must use a strong TITLE_TEXT_COLOR (white)   color as the main front surface.
+
+    Use:
+    - Main letter face: Deep Royal Blue
+    - Slight lighter white highlight on the upper edges
+    - Dark navy white dimensional depth and shadow
+    - Clean white thin separation only if needed for readability
+
+    Do NOT use yellow.
+    Do NOT use golden colors.
+    Do NOT tint the entire image blue.
+    Do NOT recolor characters, clothes, skin, or background.
+
+    The blue color applies ONLY to the Persian title typography and small requested decorative accents.
+
+    Keep the background warm and neutral:
+    soft beige, cream, natural indoor tones.
+
+    The final cover should keep the same visual identity as the previous yellow typography version, but with a blue typography system.
+    REFERENCE STYLE:
+
+    Keep the exact same composition style as the previous successful cover:
+    - Same title placement
+    - Same title scale (25% smaller version)
+    - Same transparent title area
+    - Same character positioning
+    - Same professional cutout quality
+    - Same Persian comic typography style
+
+    Only replace the yellow typography system with a premium blue typography system.
+

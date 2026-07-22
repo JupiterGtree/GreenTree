@@ -1,0 +1,235 @@
+@import "tailwindcss";
+
+:root {
+  /* Core surfaces */
+  --gt-black: #070d0e;
+  --gt-charcoal: #0c1516;
+  --gt-charcoal-2: #101b1c;
+  --gt-surface: #142223;
+  --gt-surface-2: #192a2b;
+  --gt-surface-3: #203334;
+  --gt-border: #2a4142;
+  --gt-border-soft: #203536;
+
+  /* Forest / brand greens */
+  --gt-forest-deep: #0b2928;
+  --gt-forest: #123b38;
+  --gt-emerald: #20b2aa;
+  --gt-emerald-bright: #4bd3cb;
+  --gt-moss: #78938e;
+  --gt-leaf: #9ac2b5;
+
+  /* Accent */
+  --gt-gold: #cda86a;
+  --gt-gold-bright: #e3c187;
+
+  /* Text */
+  --gt-offwhite: #f2f0e6;
+  --gt-fg: #eef1ec;
+  --gt-muted: #aab9b7;
+  --gt-muted-2: #829492;
+
+  /* Status */
+  --gt-success: #4bd3cb;
+  --gt-warning: #e3c187;
+  --gt-danger: #d47a68;
+  --gt-info: #7db8c9;
+
+  --background: var(--gt-charcoal);
+  --foreground: var(--gt-fg);
+
+  /* Sharper architectural radius scale */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius: var(--radius-md);
+
+  /* Reusable controlled glass surfaces */
+  --glass-image-bg: rgba(7, 20, 21, 0.56);
+  --glass-image-border: rgba(133, 220, 214, 0.18);
+  --glass-surface-bg: rgba(20, 34, 35, 0.76);
+  --glass-surface-border: rgba(103, 177, 173, 0.2);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-gt-black: var(--gt-black);
+  --color-gt-charcoal: var(--gt-charcoal);
+  --color-gt-charcoal-2: var(--gt-charcoal-2);
+  --color-gt-surface: var(--gt-surface);
+  --color-gt-surface-2: var(--gt-surface-2);
+  --color-gt-surface-3: var(--gt-surface-3);
+  --color-gt-border: var(--gt-border);
+  --color-gt-border-soft: var(--gt-border-soft);
+
+  --color-gt-forest-deep: var(--gt-forest-deep);
+  --color-gt-forest: var(--gt-forest);
+  --color-gt-emerald: var(--gt-emerald);
+  --color-gt-emerald-bright: var(--gt-emerald-bright);
+  --color-gt-moss: var(--gt-moss);
+  --color-gt-leaf: var(--gt-leaf);
+
+  --color-gt-gold: var(--gt-gold);
+  --color-gt-gold-bright: var(--gt-gold-bright);
+
+  --color-gt-offwhite: var(--gt-offwhite);
+  --color-gt-fg: var(--gt-fg);
+  --color-gt-muted: var(--gt-muted);
+  --color-gt-muted-2: var(--gt-muted-2);
+
+  --color-gt-success: var(--gt-success);
+  --color-gt-warning: var(--gt-warning);
+  --color-gt-danger: var(--gt-danger);
+  --color-gt-info: var(--gt-info);
+
+  --font-display: var(--font-sora);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+* {
+  border-color: var(--gt-border);
+}
+
+html {
+  scroll-behavior: smooth;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--gt-emerald);
+  color: var(--gt-black);
+}
+
+:focus-visible {
+  outline: 2px solid var(--gt-emerald-bright);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Custom scrollbar - restrained, not decorative */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--gt-charcoal);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gt-surface-3);
+  border-radius: 8px;
+  border: 2px solid var(--gt-charcoal);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gt-moss);
+}
+
+/* Shared organic background textures ------------------------------------ */
+
+.bg-topo {
+  background-image: repeating-radial-gradient(
+    circle at 20% 20%,
+    color-mix(in srgb, var(--gt-emerald) 7%, transparent) 0px,
+    transparent 1px,
+    transparent 42px,
+    color-mix(in srgb, var(--gt-emerald) 5%, transparent) 43px
+  );
+}
+
+.bg-rings {
+  background-image: repeating-radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--gt-leaf) 10%, transparent) 0px,
+    transparent 2px,
+    transparent 34px,
+    color-mix(in srgb, var(--gt-leaf) 6%, transparent) 35px
+  );
+}
+
+.bg-grain {
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--gt-offwhite) 4%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 3px 3px;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.container-gt {
+  width: 100%;
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .container-gt {
+    padding-inline: 1.75rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-gt {
+    padding-inline: 2.5rem;
+  }
+}
+
+.surface-card {
+  background: linear-gradient(145deg, rgba(28, 47, 48, 0.82), rgba(15, 28, 29, 0.74));
+  border: 1px solid var(--glass-surface-border);
+  box-shadow:
+    inset 0 1px 0 rgba(235, 255, 253, 0.035),
+    0 14px 36px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(10px) saturate(108%);
+  -webkit-backdrop-filter: blur(10px) saturate(108%);
+}
+
+.glass-surface-a {
+  background: var(--glass-image-bg);
+  border: 1px solid var(--glass-image-border);
+  box-shadow:
+    inset 0 1px 0 rgba(231, 255, 238, 0.06),
+    0 20px 60px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(18px) saturate(112%);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+}
+
+.glass-surface-b {
+  background: var(--glass-surface-bg);
+  border: 1px solid var(--glass-surface-border);
+  box-shadow:
+    inset 0 1px 0 rgba(235, 255, 253, 0.035),
+    0 12px 30px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.tabular {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}

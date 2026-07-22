@@ -1,0 +1,25 @@
+{
+  "name": "gtree-foundation-sale-localnet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:localnet": "tsx node_modules/mocha/bin/mocha.js --timeout 120000 tests/foundation-sale.ts",
+    "client:demo": "tsx scripts/demo.ts"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "1.1.2",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.98.4",
+    "bn.js": "5.2.2"
+  },
+  "devDependencies": {
+    "@types/bn.js": "5.2.0",
+    "@types/chai": "5.2.3",
+    "@types/mocha": "10.0.10",
+    "chai": "6.2.2",
+    "mocha": "11.7.5",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

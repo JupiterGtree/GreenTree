@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { processTelegramUpdate, telegramEnabled, validWebhookSecret, type TelegramUpdate } from "@/lib/telegram/server";
+export const runtime = "nodejs";
+export async function POST(request: Request) { if (!telegramEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 }); if (!validWebhookSecret(request.headers.get("x-telegram-bot-api-secret-token"))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); const raw = await request.text(); if (raw.length > 262_144) return NextResponse.json({ error: "Payload too large" }, { status: 413 }); try { await processTelegramUpdate(JSON.parse(raw) as TelegramUpdate); return NextResponse.json({ ok: true }); } catch { return NextResponse.json({ error: "Update could not be processed" }, { status: 200 }); } }

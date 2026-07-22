@@ -1,0 +1,20 @@
+[toolchain]
+anchor_version = "1.1.2"
+solana_version = "3.1.10"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+gtree_foundation_sale = "3wLUimZ83C6X1NTQaN6uoDAE8vLmk5oNu91bnruYcjxm"
+
+[provider]
+cluster = "Localnet"
+wallet = "test-keys/authority.json"
+
+[workspace]
+types = "target/types"
+
+[scripts]
+test = "npm run test:localnet"

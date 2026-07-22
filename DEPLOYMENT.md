@@ -1,0 +1,3 @@
+# Green Tree production deployment
+
+On Ubuntu, clone this repository to `/var/www/greentree/app`, run `sudo bash deploy/setup-vps.sh`, copy `deploy/greentree.env.example` to `/etc/greentree/greentree.env` and provide secrets there with mode `0640 root:greentree`. Configure DNS, run Certbot for `gtree.land www.gtree.land`, install `deploy/nginx/gtree.land.conf`, then run `sudo -u greentree bash deploy/deploy.sh`. Finally run `sudo -u greentree bash deploy/configure-telegram.sh` only after HTTPS and Telegram secrets are valid. The deployment keeps SQLite databases and permanent token assets outside releases; rollback never rolls databases back.
