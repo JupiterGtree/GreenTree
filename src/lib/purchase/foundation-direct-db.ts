@@ -391,6 +391,38 @@ export class SQLiteFoundationSaleControlStore implements FoundationSaleControlSt
     return result.changes > 0;
   }
 
+  async confirmQuoteAndRecordIssued(
+    quoteId: string,
+    wallet: PublicKey,
+    tokenUnits: bigint,
+    confirmedAtMs: number,
+  ): Promise<boolean> {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const transition = this.db.prepare(`
+        UPDATE quotes
+        SET status = 'CONFIRMED', confirmed_at = ?, updated_at = ?
+        WHERE quote_id = ? AND status = 'SUBMITTED'
+      `).run(confirmedAtMs, confirmedAtMs, quoteId);
+      if (transition.changes === 0) {
+        this.db.exec("ROLLBACK");
+        return false;
+      }
+
+      this.db.prepare(`
+        INSERT INTO issued_transactions (wallet, token_units, issued_at_ms)
+        VALUES (?, ?, ?)
+      `).run(wallet.toBase58(), tokenUnits.toString(), confirmedAtMs);
+      this.db.prepare("DELETE FROM issued_transactions WHERE issued_at_ms < ?")
+        .run(confirmedAtMs - 48 * 60 * 60 * 1000);
+      this.db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch { /* Transaction may already be closed. */ }
+      throw error;
+    }
+  }
+
   async updateQuoteStatus(
     quoteId: string,
     status: "CREATED" | "BUILT" | "SUBMITTED" | "CONFIRMED" | "EXPIRED" | "FAILED",

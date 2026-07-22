@@ -116,6 +116,14 @@ export interface FoundationSaleControlStore {
     status: "CREATED" | "BUILT" | "SUBMITTED" | "CONFIRMED" | "EXPIRED" | "FAILED",
     txSignature?: string | null
   ): Promise<void>;
+
+  /** Atomically marks a settled quote as confirmed and records it for sale limits. */
+  confirmQuoteAndRecordIssued?(
+    quoteId: string,
+    wallet: PublicKey,
+    tokenUnits: bigint,
+    confirmedAtMs: number,
+  ): Promise<boolean>;
 }
 
 export interface TokenAccountSnapshot {
@@ -347,8 +355,6 @@ export async function createFoundationDirectPurchase(
   const transaction = new VersionedTransaction(message);
   transaction.sign([config.saleSigner]);
   const serialized = Buffer.from(transaction.serialize()).toString("base64");
-  await config.controlStore?.recordIssuedTransaction(request.buyer, outputTokenBaseUnits, fetchedNowMs());
-
   return {
     transaction,
     serializedTransaction: serialized,

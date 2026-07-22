@@ -110,11 +110,18 @@ export async function POST(request: Request) {
     const checkResult = await verifyOnChainSettlement(connection, signature, latestQuote);
 
     if (checkResult.status === "CONFIRMED") {
-      // Transition status SUBMITTED -> CONFIRMED
-      await store.transitionQuoteStatus?.(body.quoteId, ["SUBMITTED"], "CONFIRMED", {
-        confirmed_at: Date.now(),
-      });
-      invalidateFoundationInventorySnapshot();
+      const confirmedAt = Date.now();
+      const transitioned = store.confirmQuoteAndRecordIssued
+        ? await store.confirmQuoteAndRecordIssued(
+          body.quoteId,
+          buyerPubKey,
+          BigInt(latestQuote.outputTokenUnits),
+          confirmedAt,
+        )
+        : await store.transitionQuoteStatus?.(body.quoteId, ["SUBMITTED"], "CONFIRMED", {
+          confirmed_at: confirmedAt,
+        });
+      if (transitioned) invalidateFoundationInventorySnapshot();
     } else if (checkResult.status === "FAILED") {
       // Transition status SUBMITTED -> FAILED
       await store.transitionQuoteStatus?.(body.quoteId, ["SUBMITTED"], "FAILED", {

@@ -30,6 +30,7 @@ import {
   createFoundationDirectQuote,
   createFoundationDirectPurchase,
   type FoundationDirectConfig,
+  type FoundationSaleControlStore,
   type MintSnapshot,
   type PurchaseChainReader,
   type ReferencePrice,
@@ -289,6 +290,25 @@ test("server response metadata does not expose the sale private key", async () =
   assert(!payload.includes(JSON.stringify(Array.from(state.saleSigner.secretKey))));
   assert(!payload.includes(Buffer.from(state.saleSigner.secretKey).toString("hex")));
   assert.equal(built.saleSigner, state.saleSigner.publicKey.toBase58());
+});
+
+test("building an unsigned Foundation transaction does not consume wallet or daily sale limits", async () => {
+  const state = await setupSale();
+  let issued = 0;
+  const controlStore: FoundationSaleControlStore = {
+    async getWalletTokenUnitsIssued() { return 0n; },
+    async getDailyTokenUnitsIssued() { return 0n; },
+    async recordIssuedTransaction() { issued += 1; },
+    async getQuoteState() { return null; },
+    async setQuoteState() {},
+    async getPriceObservations() { return []; },
+    async recordPriceObservation() {},
+    async getCooldownUntil() { return 0; },
+    async setCooldownUntil() {},
+  };
+
+  await buildPurchase(state, "unsigned-limit-check", {}, { controlStore });
+  assert.equal(issued, 0, "only an on-chain confirmed settlement may consume a sale limit");
 });
 
 interface SetupOptions {
