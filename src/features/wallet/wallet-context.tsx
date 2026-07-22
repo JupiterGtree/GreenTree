@@ -20,8 +20,14 @@ declare global {
   }
 }
 
-export function getWalletOptions(): WalletInfo[] {
-  const browser = typeof window !== "undefined";
+/**
+ * Keep provider discovery opt-in.  An injected wallet can be present before
+ * React hydrates, while it is necessarily absent during SSR.  Calling this
+ * with the default value therefore keeps the server and first client tree
+ * identical; the dialog enables discovery only after mount.
+ */
+export function getWalletOptions(detectProviders = false): WalletInfo[] {
+  const browser = detectProviders && typeof window !== "undefined";
   return [
     { id: "phantom", name: "Phantom", icon: "phantom", installed: browser && Boolean(window.phantom?.solana?.isPhantom) },
     { id: "solflare", name: "Solflare", icon: "solflare", installed: browser && Boolean(window.solflare?.isSolflare) },

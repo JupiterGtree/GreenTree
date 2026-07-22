@@ -23,12 +23,31 @@ import { cn } from "@/lib/utils";
 import { ENV, GTREE_POOL_ADDRESS } from "@/lib/constants/env";
 import { useSharedMarketSnapshot } from "@/lib/market/shared-client-snapshots";
 
-function formatAxisTime(ts: number, range: ChartRange): string {
+export function formatMarketAxisTime(ts: number, range: ChartRange): string {
   const date = new Date(ts);
   if (range === "1H" || range === "24H") {
-    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
   }
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+export function formatMarketDateTime(ts: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(ts));
+}
+
+export function formatMarketDate(ts: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(ts));
 }
 
 function formatPriceValue(value: number, quote: ChartQuote): string {
@@ -55,7 +74,7 @@ function ChartTooltip({
   const point = payload[0].payload;
   return (
     <div className="rounded-md border border-gt-border bg-gt-charcoal-2 px-3 py-2 text-xs shadow-md">
-      <p className="text-gt-muted">{formatAxisTime(point.timestamp, range)}</p>
+      <p className="text-gt-muted">{formatMarketAxisTime(point.timestamp, range)}</p>
       <p className="tabular mt-0.5 font-semibold text-gt-offwhite">{formatPriceValue(point.price, quote)}</p>
     </div>
   );
@@ -163,7 +182,7 @@ export function PriceChart() {
                 ? <>The verified pool spot price is <strong className="text-gt-fg">{formatPriceValue(history.spotPrice, quote)}</strong>. Select another range to check the available history.</>
                 : <>The pool spot price is temporarily unavailable. Select another range or try again later.</>}
             </p>
-            {history.lastTradeAt && <p className="mt-2 text-xs text-gt-muted-2">Last recorded Meteora activity: {new Date(history.lastTradeAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>}
+            {history.lastTradeAt && <p className="mt-2 text-xs text-gt-muted-2">Last recorded Meteora activity: {formatMarketDateTime(history.lastTradeAt)}</p>}
             <a href={ENV.dexUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-gt-emerald-bright hover:text-gt-offwhite">Buy through Jupiter <ExternalLink className="size-3.5" aria-hidden /></a>
           </div>
         </div>
@@ -191,7 +210,7 @@ export function PriceChart() {
                 </defs>
                 <XAxis
                   dataKey="timestamp"
-                  tickFormatter={(ts) => formatAxisTime(ts, range)}
+                  tickFormatter={(ts) => formatMarketAxisTime(ts, range)}
                   stroke="var(--gt-border)"
                   tick={{ fill: "var(--gt-muted-2)", fontSize: 11 }}
                   tickLine={false}
@@ -228,7 +247,7 @@ export function PriceChart() {
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-gt-muted-2">
             <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 bg-gt-emerald-bright" /> GTREE spot price</span>
             <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2 bg-gt-surface-3" /> Meteora swap volume</span>
-            {history.availableFrom && <span className="ml-auto">History available since {new Date(history.availableFrom).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+            {history.availableFrom && <span className="ml-auto">History available since {formatMarketDate(history.availableFrom)}</span>}
           </div>
         </div>
       )}
