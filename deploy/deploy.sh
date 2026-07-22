@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "$(id -un)" != "greentree" ]; then
+  echo "Run this release script as the greentree user."
+  exit 1
+fi
 exec 9>/var/lib/greentree/deploy.lock
 flock -n 9 || { echo "Another deployment is active."; exit 1; }
 APP=/var/www/greentree/app; DATA=/var/lib/greentree; ENV=/etc/greentree/greentree.env
@@ -33,5 +37,7 @@ if ! curl -fsS http://127.0.0.1:3000/ >/dev/null; then
   pm2 startOrReload ecosystem.config.cjs --update-env
   exit 1
 fi
-"$APP/deploy/verify-production.sh"
+# Nginx validates TLS configuration and needs root-only certificate access.
+# Run deploy/verify-production.sh as root after this application release completes.
 find "$DATA/backups" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+echo "Application release complete. Run deploy/verify-production.sh as root for public verification."

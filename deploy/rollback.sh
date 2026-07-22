@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 APP=/var/www/greentree/app; ENV=/etc/greentree/greentree.env; DATA=/var/lib/greentree
+[ "$(id -un)" = "greentree" ] || { echo "Run this rollback script as the greentree user."; exit 1; }
 target="${1:?commit required}"; asset_backup="${2:-}"
 [ -f "$ENV" ] || { echo "Missing environment file."; exit 1; }
 cd "$APP"; git checkout "$target"; npm ci; npm run build
