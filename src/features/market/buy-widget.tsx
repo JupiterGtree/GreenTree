@@ -420,6 +420,11 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
         const transactionForWallet = VersionedTransaction.deserialize(preparedTransaction.serialize());
         const signedTransaction = await signTransaction(transactionForWallet);
         if (!sameBytes(preparedMessage, signedTransaction.message.serialize())) {
+          console.error("[Foundation Direct] Wallet returned a changed transaction message", {
+            difference: describeMessageDifference(preparedMessage, signedTransaction.message.serialize()),
+            prepared: describeTransaction(preparedTransaction),
+            walletReturned: describeTransaction(signedTransaction),
+          });
           throw new Error("Your wallet returned a transaction whose approved contents changed. Request a new quote and try again.");
         }
         const submitResponse = await fetch("/api/foundation/submit", {
@@ -1137,4 +1142,36 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
+}
+
+function describeMessageDifference(left: Uint8Array, right: Uint8Array) {
+  const firstDifferentByte = Math.min(left.length, right.length);
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    if (left[index] !== right[index]) {
+      return { kind: "bytes", firstDifferentByte: index, preparedByte: left[index], walletByte: right[index], preparedLength: left.length, walletLength: right.length };
+    }
+  }
+  return left.length === right.length
+    ? { kind: "none", preparedLength: left.length, walletLength: right.length }
+    : { kind: "length", firstDifferentByte, preparedLength: left.length, walletLength: right.length };
+}
+
+function describeTransaction(transaction: VersionedTransaction) {
+  const message = transaction.message;
+  const requiredSignerKeys = message.staticAccountKeys
+    .slice(0, message.header.numRequiredSignatures)
+    .map((key) => key.toBase58());
+  return {
+    version: message.version,
+    recentBlockhash: message.recentBlockhash,
+    requiredSignerKeys,
+    signaturePresent: transaction.signatures.map((signature) => !signature.every((byte) => byte === 0)),
+    staticAccountKeys: message.staticAccountKeys.map((key) => key.toBase58()),
+    instructions: message.compiledInstructions.map((instruction) => ({
+      programId: message.staticAccountKeys[instruction.programIdIndex]?.toBase58() ?? "missing",
+      accountIndexes: [...instruction.accountKeyIndexes],
+      dataLength: instruction.data.length,
+    })),
+    messageLength: message.serialize().length,
+  };
 }
