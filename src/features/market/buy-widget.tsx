@@ -408,17 +408,22 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
             quoteToken: activeQuote.quoteToken,
           }),
         });
-        const payload = (await response.json()) as PreparedSwap & { error?: string };
+        const payload = (await response.json()) as PreparedSwap & { error?: string; orderId?: string };
         if (!response.ok || !payload.transaction) {
           throw new Error(payload.error || "Could not prepare the Foundation purchase.");
         }
 
-        const signedTransaction = await signTransaction(decodeTransaction(payload.transaction));
+        const preparedTransaction = decodeTransaction(payload.transaction);
+        const preparedMessage = preparedTransaction.message.serialize();
+        const signedTransaction = await signTransaction(preparedTransaction);
+        if (!sameBytes(preparedMessage, signedTransaction.message.serialize())) {
+          throw new Error("Your wallet returned a transaction whose approved contents changed. Request a new quote and try again.");
+        }
         const submitResponse = await fetch("/api/foundation/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            quoteId: activeQuote.quoteId,
+            quoteId: payload.orderId || activeQuote.quoteId,
             buyer: wallet.address,
             transaction: btoa(String.fromCharCode(...signedTransaction.serialize())),
           }),
@@ -1124,4 +1129,9 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
       </Button>
     </div>
   );
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
