@@ -422,6 +422,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
         if (!sameBytes(preparedMessage, signedTransaction.message.serialize())) {
           console.error("[Foundation Direct] Wallet returned a changed transaction message", {
             difference: describeMessageDifference(preparedMessage, signedTransaction.message.serialize()),
+            semanticDifference: describeSemanticDifference(preparedTransaction, signedTransaction),
             prepared: describeTransaction(preparedTransaction),
             walletReturned: describeTransaction(signedTransaction),
           });
@@ -1137,6 +1138,23 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
       </Button>
     </div>
   );
+}
+
+function describeSemanticDifference(prepared: VersionedTransaction, walletReturned: VersionedTransaction) {
+  const preparedKeys = prepared.message.staticAccountKeys.map((key) => key.toBase58());
+  const walletKeys = walletReturned.message.staticAccountKeys.map((key) => key.toBase58());
+  const describeInstructions = (transaction: VersionedTransaction) => transaction.message.compiledInstructions.map((instruction) => ({
+    programId: transaction.message.staticAccountKeys[instruction.programIdIndex]?.toBase58() ?? "missing",
+    accountIndexes: [...instruction.accountKeyIndexes],
+    dataLength: instruction.data.length,
+  }));
+  return {
+    header: { prepared: prepared.message.header, walletReturned: walletReturned.message.header },
+    addedStaticAccountKeys: walletKeys.filter((key) => !preparedKeys.includes(key)),
+    removedStaticAccountKeys: preparedKeys.filter((key) => !walletKeys.includes(key)),
+    preparedInstructions: describeInstructions(prepared),
+    walletReturnedInstructions: describeInstructions(walletReturned),
+  };
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
