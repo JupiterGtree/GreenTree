@@ -136,6 +136,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
     balanceStatus,
     balanceError,
     openDialog,
+    signTransaction,
     signAndSendTransaction,
   } = useWallet();
   const connected = walletState === "connected" && Boolean(wallet);
@@ -412,7 +413,21 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
           throw new Error(payload.error || "Could not prepare the Foundation purchase.");
         }
 
-        const submittedSignature = await signAndSendTransaction(decodeTransaction(payload.transaction));
+        const signedTransaction = await signTransaction(decodeTransaction(payload.transaction));
+        const submitResponse = await fetch("/api/foundation/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            quoteId: activeQuote.quoteId,
+            buyer: wallet.address,
+            transaction: btoa(String.fromCharCode(...signedTransaction.serialize())),
+          }),
+        });
+        const submitPayload = (await submitResponse.json()) as { signature?: string; error?: string };
+        if (!submitResponse.ok || !submitPayload.signature) {
+          throw new Error(submitPayload.error || "The signed Foundation purchase could not be submitted.");
+        }
+        const submittedSignature = submitPayload.signature;
         foundationSubmitted.current = true;
         setQuoteExpired(false);
         setSignature(submittedSignature);

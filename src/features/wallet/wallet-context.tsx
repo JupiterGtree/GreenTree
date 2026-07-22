@@ -10,6 +10,7 @@ interface InjectedSolanaProvider {
   publicKey?: { toString(): string };
   connect(): Promise<{ publicKey: { toString(): string } }>;
   disconnect(): Promise<void>;
+  signTransaction?(transaction: VersionedTransaction): Promise<VersionedTransaction>;
   signAndSendTransaction(transaction: VersionedTransaction): Promise<{ signature: string } | string>;
 }
 
@@ -52,6 +53,7 @@ interface WalletContextValue {
   closeDialog: () => void;
   connect: (walletId: string) => Promise<void>;
   disconnect: () => Promise<void>;
+  signTransaction: (transaction: VersionedTransaction) => Promise<VersionedTransaction>;
   signAndSendTransaction: (transaction: VersionedTransaction) => Promise<string>;
 }
 
@@ -127,6 +129,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return typeof result === "string" ? result : result.signature;
   }, []);
 
+  const signTransaction = React.useCallback(async (transaction: VersionedTransaction) => {
+    if (!providerRef.current) throw new Error("Connect your wallet before signing the purchase.");
+    if (!providerRef.current.signTransaction) {
+      throw new Error("This wallet does not support signing the Foundation purchase transaction.");
+    }
+    return providerRef.current.signTransaction(transaction);
+  }, []);
+
   const value = React.useMemo<WalletContextValue>(() => ({
     state,
     wallet,
@@ -138,8 +148,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     closeDialog: () => setDialogOpen(false),
     connect,
     disconnect,
+    signTransaction,
     signAndSendTransaction,
-  }), [state, wallet, balanceStatus, balanceError, isDialogOpen, error, connect, disconnect, signAndSendTransaction]);
+  }), [state, wallet, balanceStatus, balanceError, isDialogOpen, error, connect, disconnect, signTransaction, signAndSendTransaction]);
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
