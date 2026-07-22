@@ -10,6 +10,8 @@ APP=/var/www/greentree/app; DATA=/var/lib/greentree; ENV=/etc/greentree/greentre
 [ -f "$ENV" ] || { echo "Missing environment file."; exit 1; }
 [ -d "$APP/.git" ] || { echo "Clone repository first."; exit 1; }
 mkdir -p "$APP/data" "$DATA/backups" "$DATA/public/assets/token"
+chmod 0751 "$DATA"
+chmod 0755 "$DATA/public" "$DATA/public/assets" "$DATA/public/assets/token"
 cd "$APP"
 git diff --quiet && git diff --cached --quiet || { echo "Dirty release checkout."; exit 1; }
 previous=$(git rev-parse HEAD)
