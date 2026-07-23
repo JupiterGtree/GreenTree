@@ -53,7 +53,14 @@ export function hasValidSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return true;
   try {
-    return new URL(origin).origin === new URL(request.url).origin;
+    const requestUrl = new URL(request.url);
+    // The production app sits behind Nginx. request.url reflects the internal
+    // HTTP hop, while the browser correctly reports the public HTTPS Origin.
+    // Nginx supplies these forwarded values and the Next.js process only binds
+    // to loopback, so compare against the externally visible request origin.
+    const protocol = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || requestUrl.protocol.replace(/:$/, "");
+    const host = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim() || request.headers.get("host") || requestUrl.host;
+    return new URL(origin).origin === new URL(`${protocol}://${host}`).origin;
   } catch {
     return false;
   }
