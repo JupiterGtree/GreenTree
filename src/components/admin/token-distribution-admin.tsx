@@ -126,7 +126,9 @@ export function TokenDistributionAdmin({
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-gt-emerald-bright">Token distribution</p>
         <h1 className="mt-2 text-3xl font-semibold">Manual GTREE distribution</h1>
         <p className="mt-2 text-sm text-gt-muted">
-          OWNER-only distribution console. Production is deployed with real transfers disabled and dry-run enabled until explicit activation.
+          {dashboard.config.enabled && !dashboard.config.dryRun
+            ? "OWNER-only distribution console. Production activation is enabled with real transfers available after preview, fee-payer validation, and explicit OWNER confirmation."
+            : "OWNER-only distribution console. Production is deployed with real transfers disabled and dry-run enabled until explicit activation."}
         </p>
       </div>
 
