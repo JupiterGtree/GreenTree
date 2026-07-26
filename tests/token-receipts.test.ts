@@ -183,11 +183,20 @@ function parsedTransaction(options: {
   return {
     slot: 123456,
     blockTime: Math.trunc(NOW / 1000),
-    meta: { err: options.err ?? null },
     transaction: {
       message: {
+        accountKeys: [
+          { pubkey: { toBase58: () => DISTRIBUTION_SOURCE.sourceTokenAccount } },
+          { pubkey: { toBase58: () => RECIPIENT_ATA } },
+        ],
         instructions: options.extraTransfer ? [transfer, transfer] : [transfer],
       },
+    },
+    meta: {
+      err: options.err ?? null,
+      postTokenBalances: [
+        { accountIndex: 1, mint: options.mint ?? DISTRIBUTION_SOURCE.mint, owner: RECIPIENT },
+      ],
     },
   };
 }

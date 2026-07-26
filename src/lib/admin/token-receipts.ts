@@ -247,14 +247,22 @@ export function sanitizePublicDescription(value: string | undefined | null) {
 
 function extractGtreeTransfer(tx: Awaited<ReturnType<Connection["getParsedTransaction"]>>) {
   const instructions = tx?.transaction.message.instructions ?? [];
+  const tokenOwners = new Map<string, string>();
+  const accountKeys = tx?.transaction.message.accountKeys ?? [];
+  for (const balance of tx?.meta?.postTokenBalances ?? []) {
+    if (balance.mint !== DISTRIBUTION_SOURCE.mint || !balance.owner) continue;
+    const accountKey = accountKeys[balance.accountIndex];
+    const pubkey = typeof accountKey === "string" ? accountKey : accountKey?.pubkey?.toBase58();
+    if (pubkey) tokenOwners.set(pubkey, balance.owner);
+  }
   const matches = instructions
-    .map(extractTransferFromInstruction)
+    .map((instruction) => extractTransferFromInstruction(instruction, tokenOwners))
     .filter((item): item is NonNullable<ReturnType<typeof extractTransferFromInstruction>> => Boolean(item));
   if (matches.length !== 1) return null;
   return matches[0];
 }
 
-function extractTransferFromInstruction(instruction: ParsedInstruction | PartiallyDecodedInstruction) {
+function extractTransferFromInstruction(instruction: ParsedInstruction | PartiallyDecodedInstruction, tokenOwners: Map<string, string>) {
   if (!("parsed" in instruction) || instruction.program !== "spl-token") return null;
   const parsed = instruction.parsed as { type?: string; info?: Record<string, unknown> };
   if (parsed.type !== "transferChecked" && parsed.type !== "transfer") return null;
@@ -268,7 +276,7 @@ function extractTransferFromInstruction(instruction: ParsedInstruction | Partial
   const tokenAmount = info.tokenAmount as { amount?: string; decimals?: number } | undefined;
   const amountBaseUnits = tokenAmount?.amount ?? String(info.amount ?? "");
   if (!/^\d+$/.test(amountBaseUnits)) return null;
-  const recipientWallet = String(info.owner ?? info.destinationOwner ?? "");
+  const recipientWallet = String(info.owner ?? info.destinationOwner ?? tokenOwners.get(destination) ?? "");
   if (!recipientWallet) return null;
   return {
     recipientWallet,
