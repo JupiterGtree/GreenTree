@@ -45,6 +45,7 @@ export default async function ReceiptPage({ params }: PageProps) {
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#031111] px-4 py-8 text-gt-fg sm:px-6 print:bg-white print:text-black">
+      <style dangerouslySetInnerHTML={{ __html: "body > header, body > footer { display: none !important; } #main-content { flex: 1 1 auto; }" }} />
       <div className="pointer-events-none fixed inset-0 -z-0 bg-[radial-gradient(circle_at_20%_10%,rgba(0,229,214,0.18),transparent_32%),radial-gradient(circle_at_80%_0%,rgba(53,211,153,0.14),transparent_28%),linear-gradient(140deg,rgba(4,18,18,1),rgba(3,10,11,1))] print:hidden" />
       <section className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-2xl items-center">
         <article className="w-full rounded-[2rem] border border-gt-border/80 bg-gt-charcoal/75 p-5 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-8 print:border-slate-300 print:bg-white print:shadow-none">
