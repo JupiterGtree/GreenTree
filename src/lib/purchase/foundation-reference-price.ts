@@ -270,7 +270,7 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
 
     const settled = await Promise.allSettled([
       timed("meteora", () => this.options.loadMeteoraCandidate?.() ?? this.meteoraSpotCandidate()),
-      ...this.options.probeLamports.map((amount, index) =>
+      ...this.referenceProbeLamports().map((amount, index) =>
         timed(`jupiter-${index}`, () => this.options.loadJupiterCandidate?.(amount) ?? this.jupiterProbeCandidate(amount))),
     ]);
 
@@ -309,6 +309,12 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
       denominator: priceSolPerGtree.numerator * LAMPORTS_PER_SOL,
       solPriceUsdCents: BigInt(Math.round(pool.solPriceUsd * 100)),
     };
+  }
+
+  private referenceProbeLamports(): bigint[] {
+    const sorted = [...this.options.probeLamports].filter((amount) => amount > 0n).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    if (sorted.length === 0) return [];
+    return [sorted[0]];
   }
 
   private async jupiterProbeCandidate(inputLamports: bigint): Promise<FoundationPriceCandidate> {

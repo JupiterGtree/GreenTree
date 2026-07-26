@@ -98,6 +98,27 @@ function referenceProvider(options: {
   });
 }
 
+function multiProbeReferenceProvider(options: {
+  now: () => number;
+  cache: ValidatedReferencePriceCache;
+  meteora: () => Promise<FoundationPriceCandidate>;
+  jupiter: (inputLamports: bigint) => Promise<FoundationPriceCandidate>;
+}) {
+  return new AggregatedFoundationReferencePriceProvider({
+    probeLamports: [10_000_000n, 1_000_000n, 5_000_000n],
+    slippageBps: 50,
+    maxSourceAgeMs: 10_000,
+    maxDivergenceBps: 500,
+    minSourceCount: 2,
+    now: options.now,
+    cache: options.cache,
+    sourceRetries: 0,
+    controlStore: referenceStore(),
+    loadMeteoraCandidate: options.meteora,
+    loadJupiterCandidate: options.jupiter,
+  });
+}
+
 function clearTables(store: SQLiteFoundationSaleControlStore) {
   store["db"].exec("DELETE FROM quotes;");
   store["db"].exec("DELETE FROM price_observations;");
@@ -145,6 +166,25 @@ test("Phase 7: Price Safety, TWAP, and Cooldown Tests", async (t) => {
     // Verify cooldown is set
     const activeCooldown = await globalStore.getCooldownUntil();
     assert.equal(activeCooldown, cooldownUntil);
+  });
+
+  await t.test("reference validation uses one low-impact Jupiter probe", async () => {
+    const now = Date.now();
+    const requestedProbes: string[] = [];
+    const provider = multiProbeReferenceProvider({
+      now: () => now,
+      cache: new ValidatedReferencePriceCache(),
+      meteora: async () => candidate(now, "meteora"),
+      jupiter: async (inputLamports) => {
+        requestedProbes.push(inputLamports.toString());
+        return candidate(now, "jupiter");
+      },
+    });
+
+    const price = await provider.getReferencePrice(1_000_000n, PublicKey.unique());
+
+    assert.equal(price.diagnostics?.validSourceCount, 2);
+    assert.deepEqual(requestedProbes, ["1000000"]);
   });
 
   await t.test("7. Cooldown persists across database reinitialization", async () => {
