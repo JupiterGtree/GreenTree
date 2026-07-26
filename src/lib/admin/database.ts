@@ -664,10 +664,23 @@ export class AdminDatabase {
         ON transaction_receipts(public_id, revoked_at);
       CREATE INDEX IF NOT EXISTS idx_transaction_receipts_status
         ON transaction_receipts(status, updated_at);
-      CREATE TRIGGER IF NOT EXISTS transaction_receipts_immutable_identity
+      DROP TRIGGER IF EXISTS transaction_receipts_immutable_identity;
+      CREATE TRIGGER transaction_receipts_immutable_identity
         BEFORE UPDATE OF public_id, distribution_id, transaction_signature, network, token_mint,
           recipient_wallet, recipient_token_account, amount_gtree, amount_base_units
         ON transaction_receipts
+        WHEN NOT (
+          OLD.public_id = NEW.public_id
+          AND OLD.distribution_id IS NULL
+          AND NEW.distribution_id IS NOT NULL
+          AND OLD.transaction_signature = NEW.transaction_signature
+          AND OLD.network = NEW.network
+          AND OLD.token_mint = NEW.token_mint
+          AND OLD.recipient_wallet = NEW.recipient_wallet
+          AND OLD.recipient_token_account = NEW.recipient_token_account
+          AND OLD.amount_gtree = NEW.amount_gtree
+          AND OLD.amount_base_units = NEW.amount_base_units
+        )
         BEGIN SELECT RAISE(ABORT, 'transaction receipt identity fields are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS transaction_receipts_no_delete
         BEFORE DELETE ON transaction_receipts

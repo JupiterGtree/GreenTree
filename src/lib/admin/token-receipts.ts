@@ -49,7 +49,13 @@ export class TokenReceiptService {
     const row = this.database.db.prepare("SELECT * FROM token_distributions WHERE uuid = ?").get(uuid) as unknown | undefined;
     if (!row) throw new TokenReceiptError("Distribution record was not found.", "NOT_FOUND");
     const distribution = distributionRowToRecord(row);
-    const existing = this.getByDistribution(distribution.uuid) || (distribution.transactionSignature ? this.getBySignature(distribution.transactionSignature) : null);
+    const existingByDistribution = this.getByDistribution(distribution.uuid);
+    const existingBySignature = distribution.transactionSignature ? this.getBySignature(distribution.transactionSignature) : null;
+    if (existingBySignature && !existingBySignature.distributionId) {
+      this.database.db.prepare("UPDATE transaction_receipts SET distribution_id = ?, updated_at = ? WHERE public_id = ? AND distribution_id IS NULL")
+        .run(distribution.uuid, this.now(), existingBySignature.publicId);
+    }
+    const existing = existingByDistribution || (existingBySignature ? this.getPublic(existingBySignature.publicId) : null);
     if (existing) {
       if (actor) this.audit(actor, "TOKEN_RECEIPT_DUPLICATE_PREVENTED", existing.publicId, { distributionId: distribution.uuid });
       return existing;

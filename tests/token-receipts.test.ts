@@ -105,6 +105,30 @@ test("backfill creates receipts for existing submitted and confirmed transfers",
   assert.equal(countRows(context.database, "transaction_receipts"), 2);
 });
 
+test("backfill links an existing external receipt with the same signature", (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  context.database.db.prepare(`
+    INSERT INTO transaction_receipts (
+      public_id, transaction_signature, network, token_mint, recipient_wallet,
+      recipient_token_account, amount_gtree, amount_base_units, status, created_at, updated_at
+    ) VALUES ('ABCDEFGHJK', ?, 'Solana Mainnet', ?, ?, ?, '1.23456789', '1234567890', 'submitted', ?, ?)
+  `).run(SIGNATURE, DISTRIBUTION_SOURCE.mint, RECIPIENT, RECIPIENT_ATA, NOW, NOW);
+  const result = context.service.backfillDistributionReceipts(OWNER);
+  assert.equal(result.created, 0);
+  const row = context.database.db.prepare("SELECT distribution_id FROM transaction_receipts WHERE public_id='ABCDEFGHJK'").get() as { distribution_id: string };
+  assert.equal(row.distribution_id, "submitted-1");
+});
+
+test("receipt identity remains immutable after linking", (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  const receipt = context.service.ensureReceiptForDistribution("submitted-1", OWNER);
+  assert.throws(() => context.database.db.prepare("UPDATE transaction_receipts SET amount_base_units='1' WHERE public_id=?").run(receipt.publicId));
+});
+
 test("internal note and administrator data never appear in receipt row", async (t) => {
   const context = setup();
   t.after(() => context.database.close());
