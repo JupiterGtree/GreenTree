@@ -24,6 +24,7 @@ export default async function ProtectedAdminLayout({
         settings: hasAdminPermission(session.user.role, "admin.settings.manage"),
         audit: hasAdminPermission(session.user.role, "audit.read"),
         users: hasAdminPermission(session.user.role, "admin.users.manage"),
+        tokenDistributions: hasAdminPermission(session.user.role, "token-distributions.view"),
       }}
     >
       {children}

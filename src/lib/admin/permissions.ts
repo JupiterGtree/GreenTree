@@ -11,7 +11,12 @@ export type AdminPermission =
   | "partnerships.read"
   | "partnerships.write"
   | "support.read"
-  | "support.write";
+  | "support.write"
+  | "token-distributions.view"
+  | "token-distributions.create"
+  | "token-distributions.confirm"
+  | "token-distributions.cancel"
+  | "token-distributions.export";
 
 const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
   OWNER: new Set([
@@ -26,6 +31,11 @@ const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
     "partnerships.write",
     "support.read",
     "support.write",
+    "token-distributions.view",
+    "token-distributions.create",
+    "token-distributions.confirm",
+    "token-distributions.cancel",
+    "token-distributions.export",
   ]),
   ADMIN: new Set([
     "admin.settings.manage",

@@ -268,6 +268,7 @@ export class AdminDatabase {
     this.ensureNewsHistorySchema();
     this.migratePartnershipSchema();
     this.migrateTelegramSchema();
+    this.migrateTokenDistributionSchema();
     this.bootstrapOwner(
       options.bootstrapEmail ?? process.env.ADMIN_BOOTSTRAP_EMAIL,
       options.bootstrapPasswordHash ?? process.env.ADMIN_PASSWORD_HASH,
@@ -551,6 +552,84 @@ export class AdminDatabase {
         key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_telegram_delivery_status ON telegram_delivery_attempts(status, created_at);
+    `);
+  }
+
+  private migrateTokenDistributionSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS token_distributions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT NOT NULL UNIQUE,
+        recipient_wallet_address TEXT NOT NULL,
+        recipient_token_account TEXT NOT NULL,
+        recipient_token_account_existed INTEGER NOT NULL DEFAULT 0 CHECK (recipient_token_account_existed IN (0, 1)),
+        amount_gtree TEXT NOT NULL,
+        amount_base_units TEXT NOT NULL,
+        token_mint TEXT NOT NULL,
+        source_wallet_address TEXT NOT NULL,
+        source_token_account TEXT NOT NULL,
+        allocation_category TEXT NOT NULL,
+        distribution_type TEXT NOT NULL,
+        internal_note TEXT,
+        public_description TEXT,
+        external_reference TEXT,
+        status TEXT NOT NULL CHECK (status IN ('draft','previewed','awaiting_confirmation','processing','submitted','confirmed','failed','cancelled','unknown')),
+        transaction_signature TEXT,
+        recent_blockhash TEXT,
+        network_fee_lamports TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        request_fingerprint TEXT NOT NULL,
+        simulation_success INTEGER CHECK (simulation_success IS NULL OR simulation_success IN (0, 1)),
+        simulation_error TEXT,
+        sanitized_simulation_logs TEXT,
+        failure_code TEXT,
+        failure_reason TEXT,
+        fee_payer_mode TEXT,
+        fee_payer_address TEXT,
+        fee_payer_balance_lamports_at_preview TEXT,
+        estimated_fee_lamports TEXT,
+        estimated_ata_rent_lamports TEXT,
+        estimated_total_cost_lamports TEXT,
+        transaction_message_hash TEXT,
+        server_partial_signature_present INTEGER NOT NULL DEFAULT 0 CHECK (server_partial_signature_present IN (0, 1)),
+        admin_wallet_signature_present INTEGER NOT NULL DEFAULT 0 CHECK (admin_wallet_signature_present IN (0, 1)),
+        dry_run INTEGER NOT NULL DEFAULT 1 CHECK (dry_run IN (0, 1)),
+        created_by_user_id TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+        confirmed_by_user_id TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+        cancelled_by_user_id TEXT REFERENCES admin_users(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        previewed_at INTEGER,
+        confirmation_requested_at INTEGER,
+        processing_started_at INTEGER,
+        submitted_at INTEGER,
+        confirmed_at INTEGER,
+        failed_at INTEGER,
+        cancelled_at INTEGER,
+        admin_wallet_connected_at INTEGER,
+        signed_transaction_received_at INTEGER,
+        fee_payer_verified_at INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_token_distributions_signature
+        ON token_distributions(transaction_signature) WHERE transaction_signature IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_token_distributions_recipient
+        ON token_distributions(recipient_wallet_address);
+      CREATE INDEX IF NOT EXISTS idx_token_distributions_status
+        ON token_distributions(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_token_distributions_category
+        ON token_distributions(allocation_category, distribution_type);
+      CREATE INDEX IF NOT EXISTS idx_token_distributions_admin
+        ON token_distributions(created_by_user_id, created_at);
+      CREATE TRIGGER IF NOT EXISTS token_distributions_no_delete_submitted
+        BEFORE DELETE ON token_distributions
+        WHEN OLD.status IN ('processing','submitted','confirmed','unknown')
+        BEGIN SELECT RAISE(ABORT, 'submitted token distributions cannot be deleted'); END;
+      CREATE TRIGGER IF NOT EXISTS token_distributions_immutable_after_processing
+        BEFORE UPDATE OF recipient_wallet_address, recipient_token_account, amount_gtree, amount_base_units,
+          token_mint, source_wallet_address, source_token_account, transaction_signature
+        ON token_distributions
+        WHEN OLD.status IN ('processing','submitted','confirmed','unknown')
+        BEGIN SELECT RAISE(ABORT, 'submitted token distribution fields are immutable'); END;
     `);
   }
 

@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Newspaper,
   Settings2,
+  SendToBack,
   Users,
 } from "lucide-react";
 import { AdminSessionControls } from "@/app/admin/(protected)/session-controls";
@@ -32,13 +33,14 @@ type NavItem = {
   label: string;
   href: string;
   icon: typeof LayoutDashboard;
-  permission?: "partnerships" | "support" | "settings" | "audit" | "users";
+  permission?: "partnerships" | "support" | "settings" | "audit" | "users" | "tokenDistributions";
 };
 
 const NAVIGATION: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Purchase Operations", href: "/admin/purchase-control", icon: Settings2 },
   { label: "Transactions", href: "/admin/transactions", icon: Activity },
+  { label: "Token Distribution", href: "/admin/token-distributions", icon: SendToBack, permission: "tokenDistributions" },
   { label: "News & Updates", href: "/admin/news", icon: Newspaper },
   { label: "Partnerships", href: "/admin/partnerships", icon: Handshake, permission: "partnerships" },
   { label: "Support", href: "/admin/support", icon: MessageCircle, permission: "support" },
