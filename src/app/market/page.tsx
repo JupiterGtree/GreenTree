@@ -40,7 +40,7 @@ export default async function MarketPage() {
 
       <section className="container-gt py-4">
         <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <div className="glass-surface-b min-w-0 self-start overflow-hidden rounded-lg p-5 sm:p-6">
+          <div className="glass-surface-b h-[620px] min-w-0 self-start overflow-y-auto overflow-x-hidden rounded-lg p-5 sm:p-6">
             <BuyWidget riskNotice={marketWarning} />
           </div>
           <div className="flex min-w-0 flex-col gap-6">

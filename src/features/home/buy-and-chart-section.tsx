@@ -25,9 +25,9 @@ export function BuyAndChartSection() {
         <Suspense fallback={<MarketSnapshotSkeleton />}>
           <MarketSnapshot compact className="mb-6" />
         </Suspense>
-        <div className="grid min-w-0 items-stretch gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <FadeIn className="order-2 min-w-0 lg:order-1 lg:h-full">
-            <div className="glass-surface-b min-w-0 overflow-hidden rounded-lg p-5 sm:p-6 lg:h-full">
+            <div className="glass-surface-b h-[620px] min-w-0 overflow-y-auto overflow-x-hidden rounded-lg p-5 sm:p-6">
               <BuyWidget riskNotice={marketWarning} />
             </div>
           </FadeIn>
