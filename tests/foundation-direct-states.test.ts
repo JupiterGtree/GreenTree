@@ -210,6 +210,18 @@ test("Phase 7: Price Safety, TWAP, and Cooldown Tests", async (t) => {
     assert.equal(obs.length, 1);
     assert.equal(obs[0].priceGtreePerSol, "1100.000000");
   });
+
+  await t.test("stale observations are pruned when read", async () => {
+    clearTables(globalStore);
+
+    globalStore["db"].prepare(`
+      INSERT INTO price_observations (price_gtree_per_sol, timestamp) VALUES (?, ?)
+    `).run("1000.000000", Date.now() - 3 * 60 * 60 * 1000);
+
+    const obs = await globalStore.getPriceObservations();
+
+    assert.equal(obs.length, 0);
+  });
 });
 
 test("independent Meteora and Jupiter reference requests start concurrently", async () => {

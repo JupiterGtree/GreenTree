@@ -215,10 +215,16 @@ export class SQLiteFoundationSaleControlStore implements FoundationSaleControlSt
   }
 
   async getPriceObservations(): Promise<Array<{ priceGtreePerSol: string; timestamp: number }>> {
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    this.db.prepare(`
+      DELETE FROM price_observations WHERE timestamp < ?
+    `).run(cutoff);
     const query = this.db.prepare(`
-      SELECT price_gtree_per_sol, timestamp FROM price_observations ORDER BY timestamp ASC
+      SELECT price_gtree_per_sol, timestamp FROM price_observations
+      WHERE timestamp >= ?
+      ORDER BY timestamp ASC
     `);
-    const rows = query.all() as any[];
+    const rows = query.all(cutoff) as any[];
     return rows.map(r => ({
       priceGtreePerSol: r.price_gtree_per_sol,
       timestamp: r.timestamp
