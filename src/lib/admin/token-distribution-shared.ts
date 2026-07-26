@@ -30,6 +30,14 @@ export interface DistributionRecord {
   failureReason: string | null;
   createdAt: number;
   updatedAt: number;
+  receipt: {
+    publicId: string;
+    publicUrl: string;
+    status: "confirmed" | "submitted" | "failed";
+    createdAt: number;
+    blockchainVerifiedAt: number | null;
+    revokedAt: number | null;
+  } | null;
 }
 
 export interface DistributionDashboard {

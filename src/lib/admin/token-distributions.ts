@@ -26,6 +26,8 @@ import { appendAdminAuditLog } from "@/lib/admin/audit";
 import { getAdminDatabase, type AdminDatabase } from "@/lib/admin/database";
 import { requireAdminPermission } from "@/lib/admin/permissions";
 import { DISTRIBUTION_SOURCE, type DistributionDashboard, type DistributionRecord } from "@/lib/admin/token-distribution-shared";
+import { receiptUrl } from "@/lib/admin/token-receipt-shared";
+import { TokenReceiptService } from "@/lib/admin/token-receipts";
 
 const CATEGORIES = [
   "Community Pool",
@@ -121,26 +123,48 @@ export class TokenDistributionService {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
     if (filters.status) {
-      clauses.push("status = ?");
+      clauses.push("token_distributions.status = ?");
       params.push(filters.status);
     }
     if (filters.query?.trim()) {
-      clauses.push("(recipient_wallet_address LIKE ? OR recipient_token_account LIKE ? OR transaction_signature LIKE ? OR external_reference LIKE ?)");
+      clauses.push("(token_distributions.recipient_wallet_address LIKE ? OR token_distributions.recipient_token_account LIKE ? OR token_distributions.transaction_signature LIKE ? OR token_distributions.external_reference LIKE ?)");
       const q = `%${filters.query.trim()}%`;
       params.push(q, q, q, q);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const total = Number((this.database.db.prepare(`SELECT COUNT(*) AS count FROM token_distributions ${where}`).get(...params) as { count: number }).count);
     const rows = this.database.db.prepare(`
-      SELECT * FROM token_distributions ${where}
-      ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+      SELECT token_distributions.*,
+        transaction_receipts.public_id AS receipt_public_id,
+        transaction_receipts.status AS receipt_status,
+        transaction_receipts.created_at AS receipt_created_at,
+        transaction_receipts.blockchain_verified_at AS receipt_blockchain_verified_at,
+        transaction_receipts.revoked_at AS receipt_revoked_at
+      FROM token_distributions
+      LEFT JOIN transaction_receipts
+        ON transaction_receipts.distribution_id = token_distributions.uuid
+       AND transaction_receipts.revoked_at IS NULL
+      ${where}
+      ORDER BY token_distributions.created_at DESC, token_distributions.id DESC LIMIT ? OFFSET ?
     `).all(...params, pageSize, (page - 1) * pageSize) as unknown[];
     return { items: rows.map(rowToRecord), total, page, pageSize };
   }
 
   get(uuid: string, actor: AdminIdentity): DistributionRecord {
     requireAdminPermission(actor.role, "token-distributions.view");
-    const row = this.database.db.prepare("SELECT * FROM token_distributions WHERE uuid = ?").get(uuid) as unknown | undefined;
+    const row = this.database.db.prepare(`
+      SELECT token_distributions.*,
+        transaction_receipts.public_id AS receipt_public_id,
+        transaction_receipts.status AS receipt_status,
+        transaction_receipts.created_at AS receipt_created_at,
+        transaction_receipts.blockchain_verified_at AS receipt_blockchain_verified_at,
+        transaction_receipts.revoked_at AS receipt_revoked_at
+      FROM token_distributions
+      LEFT JOIN transaction_receipts
+        ON transaction_receipts.distribution_id = token_distributions.uuid
+       AND transaction_receipts.revoked_at IS NULL
+      WHERE token_distributions.uuid = ?
+    `).get(uuid) as unknown | undefined;
     if (!row) throw new TokenDistributionError("Distribution record was not found.", "NOT_FOUND");
     return rowToRecord(row);
   }
@@ -308,6 +332,13 @@ export class TokenDistributionService {
       } else if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
         this.database.db.prepare("UPDATE token_distributions SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, ?), updated_at = ? WHERE uuid = ?")
           .run(now, now, row.uuid);
+        if (actor) {
+          try {
+            await new TokenReceiptService(this.database, this.connection, this.now).generateForDistribution(row.uuid, actor, "automatic");
+          } catch {
+            // Reconciliation must not hide the confirmed transfer if receipt verification is temporarily unavailable.
+          }
+        }
         updated += 1;
       }
     }
@@ -738,6 +769,7 @@ function fingerprint(value: unknown): string {
 
 function rowToRecord(value: unknown): DistributionRecord {
   const row = value as Record<string, unknown>;
+  const receiptPublicId = row.receipt_public_id ? String(row.receipt_public_id) : null;
   return {
     uuid: String(row.uuid),
     recipientWalletAddress: String(row.recipient_wallet_address),
@@ -762,6 +794,14 @@ function rowToRecord(value: unknown): DistributionRecord {
     failureReason: row.failure_reason ? String(row.failure_reason) : null,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    receipt: receiptPublicId ? {
+      publicId: receiptPublicId,
+      publicUrl: receiptUrl(receiptPublicId),
+      status: String(row.receipt_status) as "confirmed" | "submitted" | "failed",
+      createdAt: Number(row.receipt_created_at),
+      blockchainVerifiedAt: row.receipt_blockchain_verified_at === null || row.receipt_blockchain_verified_at === undefined ? null : Number(row.receipt_blockchain_verified_at),
+      revokedAt: row.receipt_revoked_at === null || row.receipt_revoked_at === undefined ? null : Number(row.receipt_revoked_at),
+    } : null,
   };
 }
 

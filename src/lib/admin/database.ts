@@ -269,6 +269,7 @@ export class AdminDatabase {
     this.migratePartnershipSchema();
     this.migrateTelegramSchema();
     this.migrateTokenDistributionSchema();
+    this.migrateTransactionReceiptSchema();
     this.bootstrapOwner(
       options.bootstrapEmail ?? process.env.ADMIN_BOOTSTRAP_EMAIL,
       options.bootstrapPasswordHash ?? process.env.ADMIN_PASSWORD_HASH,
@@ -630,6 +631,47 @@ export class AdminDatabase {
         ON token_distributions
         WHEN OLD.status IN ('processing','submitted','confirmed','unknown')
         BEGIN SELECT RAISE(ABORT, 'submitted token distribution fields are immutable'); END;
+    `);
+  }
+
+  private migrateTransactionReceiptSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS transaction_receipts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        public_id TEXT NOT NULL UNIQUE,
+        distribution_id TEXT REFERENCES token_distributions(uuid) ON DELETE SET NULL,
+        transaction_signature TEXT NOT NULL UNIQUE,
+        network TEXT NOT NULL DEFAULT 'Solana Mainnet',
+        token_mint TEXT NOT NULL,
+        recipient_wallet TEXT NOT NULL,
+        recipient_token_account TEXT NOT NULL,
+        amount_gtree TEXT NOT NULL,
+        amount_base_units TEXT NOT NULL,
+        public_description TEXT,
+        status TEXT NOT NULL CHECK (status IN ('confirmed','submitted','failed')),
+        confirmed_at INTEGER,
+        blockchain_slot INTEGER,
+        blockchain_verified_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        revoked_at INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_transaction_receipts_active_distribution
+        ON transaction_receipts(distribution_id) WHERE distribution_id IS NOT NULL AND revoked_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_transaction_receipts_active_signature
+        ON transaction_receipts(transaction_signature) WHERE revoked_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_transaction_receipts_public
+        ON transaction_receipts(public_id, revoked_at);
+      CREATE INDEX IF NOT EXISTS idx_transaction_receipts_status
+        ON transaction_receipts(status, updated_at);
+      CREATE TRIGGER IF NOT EXISTS transaction_receipts_immutable_identity
+        BEFORE UPDATE OF public_id, distribution_id, transaction_signature, network, token_mint,
+          recipient_wallet, recipient_token_account, amount_gtree, amount_base_units
+        ON transaction_receipts
+        BEGIN SELECT RAISE(ABORT, 'transaction receipt identity fields are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS transaction_receipts_no_delete
+        BEFORE DELETE ON transaction_receipts
+        BEGIN SELECT RAISE(ABORT, 'transaction receipts cannot be deleted'); END;
     `);
   }
 

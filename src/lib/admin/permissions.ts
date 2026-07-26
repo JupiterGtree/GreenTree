@@ -16,7 +16,12 @@ export type AdminPermission =
   | "token-distributions.create"
   | "token-distributions.confirm"
   | "token-distributions.cancel"
-  | "token-distributions.export";
+  | "token-distributions.export"
+  | "token-receipts.view"
+  | "token-receipts.create"
+  | "token-receipts.import"
+  | "token-receipts.reverify"
+  | "token-receipts.revoke";
 
 const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
   OWNER: new Set([
@@ -36,6 +41,11 @@ const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
     "token-distributions.confirm",
     "token-distributions.cancel",
     "token-distributions.export",
+    "token-receipts.view",
+    "token-receipts.create",
+    "token-receipts.import",
+    "token-receipts.reverify",
+    "token-receipts.revoke",
   ]),
   ADMIN: new Set([
     "admin.settings.manage",

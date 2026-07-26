@@ -47,6 +47,7 @@ export function TokenDistributionAdmin({
     externalReference: "",
   });
   const [confirmation, setConfirmation] = React.useState("");
+  const [importForm, setImportForm] = React.useState({ transactionSignature: "", publicDescription: "" });
 
   async function refresh() {
     router.refresh();
@@ -114,6 +115,46 @@ export function TokenDistributionAdmin({
     } catch (error) {
       setState({ message: "", error: error instanceof Error ? error.message : "Submission failed.", busy: false });
     }
+  }
+
+  async function generateReceipt(uuid: string) {
+    setState({ message: "", error: "", busy: true });
+    try {
+      const response = await fetch(`/admin/api/token-distributions/${uuid}/receipt`, {
+        method: "POST",
+        headers: { "x-csrf-token": csrfToken },
+      });
+      const body = await response.json() as { receipt?: { publicId: string }; error?: string };
+      if (!response.ok || !body.receipt) throw new Error(body.error || "Receipt generation failed.");
+      setState({ message: `Receipt ${body.receipt.publicId} is ready.`, error: "", busy: false });
+      router.refresh();
+    } catch (error) {
+      setState({ message: "", error: error instanceof Error ? error.message : "Receipt generation failed.", busy: false });
+    }
+  }
+
+  async function importReceipt(event: React.FormEvent) {
+    event.preventDefault();
+    setState({ message: "", error: "", busy: true });
+    try {
+      const response = await fetch("/admin/api/token-receipts/import", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
+        body: JSON.stringify(importForm),
+      });
+      const body = await response.json() as { receipt?: { publicId: string }; error?: string };
+      if (!response.ok || !body.receipt) throw new Error(body.error || "Receipt import failed.");
+      setImportForm({ transactionSignature: "", publicDescription: "" });
+      setState({ message: `Imported receipt ${body.receipt.publicId}.`, error: "", busy: false });
+      router.refresh();
+    } catch (error) {
+      setState({ message: "", error: error instanceof Error ? error.message : "Receipt import failed.", busy: false });
+    }
+  }
+
+  async function copyText(label: string, value: string) {
+    await navigator.clipboard.writeText(value);
+    setState({ message: `${label} copied.`, error: "", busy: false });
   }
 
   const serverFunded = BigInt(dashboard.source.serverSignerSolLamports) > BigInt(dashboard.config.minSolBalanceLamports);
@@ -191,7 +232,7 @@ export function TokenDistributionAdmin({
             <Label text="Allocation Category"><Select value={form.allocationCategory} onChange={(allocationCategory) => setForm({ ...form, allocationCategory })} options={categories} /></Label>
             <Label text="Distribution Type"><Select value={form.distributionType} onChange={(distributionType) => setForm({ ...form, distributionType })} options={distributionTypes} /></Label>
             <Label text="Internal Note"><textarea value={form.internalNote} onChange={(e) => setForm({ ...form, internalNote: e.target.value })} className="min-h-20 rounded-md border border-gt-border bg-gt-surface px-3 py-2 text-sm" /></Label>
-            <Label text="Public Description"><Input value={form.publicDescription} onChange={(e) => setForm({ ...form, publicDescription: e.target.value })} /></Label>
+            <Label text="Public Receipt Description"><Input value={form.publicDescription} onChange={(e) => setForm({ ...form, publicDescription: e.target.value })} maxLength={120} placeholder="Community Reward" /></Label>
             <Label text="External Reference"><Input value={form.externalReference} onChange={(e) => setForm({ ...form, externalReference: e.target.value })} /></Label>
           </div>
           <div className="mt-4 rounded-md border border-gt-border bg-gt-surface/45 p-3 text-xs text-gt-muted">
@@ -238,6 +279,16 @@ export function TokenDistributionAdmin({
         </p>
       )}
 
+      <form onSubmit={importReceipt} className="rounded-lg border border-gt-border bg-gt-charcoal/45 p-5">
+        <h2 className="text-lg font-semibold">Import Existing GTREE Transaction Receipt</h2>
+        <p className="mt-1 text-sm text-gt-muted">OWNER-only. Recipient, amount, mint, and status are derived from Solana Mainnet verification.</p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_auto]">
+          <Label text="Solana transaction signature"><Input value={importForm.transactionSignature} onChange={(e) => setImportForm({ ...importForm, transactionSignature: e.target.value })} required /></Label>
+          <Label text="Public Receipt Description"><Input value={importForm.publicDescription} onChange={(e) => setImportForm({ ...importForm, publicDescription: e.target.value })} maxLength={120} placeholder="Community Reward" /></Label>
+          <Button className="self-end" disabled={state.busy}>{state.busy ? "Working..." : "Import Receipt"}</Button>
+        </div>
+      </form>
+
       <section className="rounded-lg border border-gt-border">
         <div className="flex items-center justify-between gap-3 border-b border-gt-border p-4">
           <h2 className="font-semibold">Distribution history</h2>
@@ -246,7 +297,7 @@ export function TokenDistributionAdmin({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1050px] text-left text-sm">
             <thead className="bg-gt-surface text-xs uppercase tracking-wide text-gt-muted">
-              <tr><th className="p-3">Date</th><th className="p-3">Recipient</th><th className="p-3">Amount</th><th className="p-3">Category</th><th className="p-3">Type</th><th className="p-3">Status</th><th className="p-3">Signature</th><th className="p-3">Reference</th></tr>
+              <tr><th className="p-3">Date</th><th className="p-3">Recipient</th><th className="p-3">Amount</th><th className="p-3">Category</th><th className="p-3">Type</th><th className="p-3">Status</th><th className="p-3">Receipt</th><th className="p-3">Signature</th><th className="p-3">Reference</th></tr>
             </thead>
             <tbody>
               {list.items.map((item) => (
@@ -257,11 +308,25 @@ export function TokenDistributionAdmin({
                   <td className="p-3">{item.allocationCategory}</td>
                   <td className="p-3">{item.distributionType}</td>
                   <td className="p-3"><Badge variant={item.status === "confirmed" ? "emerald" : item.status === "failed" ? "danger" : "neutral"}>{item.status}</Badge></td>
+                  <td className="p-3">
+                    <div className="flex flex-wrap gap-2">
+                      {item.receipt ? (
+                        <>
+                          <a className="text-gt-emerald-bright hover:underline" href={item.receipt.publicUrl} target="_blank" rel="noreferrer">Open Receipt</a>
+                          <button type="button" className="text-gt-muted hover:text-gt-emerald-bright" onClick={() => void copyText("Receipt link", item.receipt!.publicUrl)}>Copy Link</button>
+                        </>
+                      ) : item.status === "confirmed" && item.transactionSignature ? (
+                        <button type="button" className="text-gt-emerald-bright hover:underline disabled:opacity-50" disabled={state.busy} onClick={() => void generateReceipt(item.uuid)}>Generate Receipt</button>
+                      ) : (
+                        <span className="text-gt-muted">Unavailable</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="p-3">{item.transactionSignature ? <a className="text-gt-emerald-bright hover:underline" href={explorerTxUrl(ENV.solscanBaseUrl, item.transactionSignature)} target="_blank" rel="noreferrer">{shorten(item.transactionSignature)}</a> : <span className="text-gt-muted">None</span>}</td>
                   <td className="p-3 text-xs text-gt-muted">{item.externalReference ?? ""}</td>
                 </tr>
               ))}
-              {!list.items.length && <tr><td colSpan={8} className="p-8 text-center text-gt-muted">No distribution records yet.</td></tr>}
+              {!list.items.length && <tr><td colSpan={9} className="p-8 text-center text-gt-muted">No distribution records yet.</td></tr>}
             </tbody>
           </table>
         </div>
