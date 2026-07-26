@@ -32,6 +32,7 @@ export function GET(request: Request) {
       signature: item.signature,
       confirmedAt: item.confirmedAt,
     })),
+    summary: result.summary,
     totalConfirmed: result.total,
     fetchedAt: new Date().toISOString(),
   }, { headers: { "Cache-Control": "no-store" } });

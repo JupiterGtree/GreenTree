@@ -159,9 +159,16 @@ export function getFoundationTransactions(
     ].join(", ");
     const total = Number((database.prepare(`SELECT COUNT(*) AS count FROM quotes ${where}`)
       .get(...values) as { count: number }).count);
+    const sortTimestamp = columns.has("confirmed_at")
+      ? columns.has("submitted_at")
+        ? "COALESCE(confirmed_at, submitted_at, created_at)"
+        : "COALESCE(confirmed_at, created_at)"
+      : columns.has("submitted_at")
+        ? "COALESCE(submitted_at, created_at)"
+        : "created_at";
     const rows = database.prepare(`
       SELECT ${select} FROM quotes ${where}
-      ORDER BY created_at DESC, quote_id DESC LIMIT ? OFFSET ?
+      ORDER BY ${sortTimestamp} DESC, created_at DESC, quote_id DESC LIMIT ? OFFSET ?
     `).all(...values, pageSize, (page - 1) * pageSize) as Array<Record<string, unknown>>;
     const stateRows = database.prepare(
       "SELECT status, COUNT(*) AS count FROM quotes GROUP BY status",

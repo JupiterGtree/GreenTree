@@ -118,7 +118,7 @@ function PurchaseState({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-80 flex-col items-center justify-center gap-4 text-center">
+    <div className="flex min-h-[760px] flex-col items-center justify-center gap-4 text-center">
       {icon}
       <div>
         <p className="font-semibold text-gt-fg">{title}</p>
@@ -159,6 +159,10 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
   const foundationSubmitted = React.useRef(false);
   const marketSnapshotState = useSharedMarketSnapshot();
   const inventoryState = useSharedFoundationInventory();
+
+  const notifyFoundationActivityChanged = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent("gtree:foundation-activity-changed"));
+  }, []);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -473,6 +477,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
             if (confirmResponse.ok && confirmPayload.status === "CONFIRMED") {
               setFoundationStep("CONFIRMED");
               void inventoryState.refresh();
+              notifyFoundationActivityChanged();
               confirmed = true;
               break;
             } else if (confirmPayload.status === "FAILED") {
@@ -888,7 +893,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
 
   if (step === "review" && quote) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex min-h-[760px] flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-gt-fg">Review purchase</p>
@@ -921,7 +926,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="flex min-h-[760px] min-w-0 flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-gt-fg">Buy GTREE</h3>

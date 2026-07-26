@@ -31,11 +31,11 @@ export function BuyAndChartSection() {
               <BuyWidget riskNotice={marketWarning} />
             </div>
           </FadeIn>
-          <FadeIn delay={0.08} className="relative order-1 min-w-0 lg:order-2 lg:h-full">
+          <FadeIn delay={0.08} className="order-1 flex min-w-0 flex-col gap-3 lg:order-2">
             <div className="surface-card min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
               <PriceChart />
             </div>
-            <div className="mt-3 min-w-0 lg:absolute lg:inset-x-0 lg:bottom-0 lg:mt-0">
+            <div className="min-w-0">
               <FoundationActivityCard />
             </div>
           </FadeIn>
