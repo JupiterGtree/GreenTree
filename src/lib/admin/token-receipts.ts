@@ -219,8 +219,10 @@ export class TokenReceiptService {
     `).all() as Array<{ uuid: string }>;
     let created = 0;
     for (const row of rows) {
+      const before = this.database.db.prepare("SELECT COUNT(1) AS count FROM transaction_receipts").get() as { count: number };
       this.ensureReceiptForDistribution(row.uuid, actor, "backfill");
-      created += 1;
+      const after = this.database.db.prepare("SELECT COUNT(1) AS count FROM transaction_receipts").get() as { count: number };
+      created += Math.max(0, Number(after.count) - Number(before.count));
     }
     return { checked: rows.length, created };
   }
