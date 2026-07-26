@@ -44,6 +44,43 @@ export class TokenReceiptService {
     return row ? rowToReceipt(row) : null;
   }
 
+  ensureReceiptForDistribution(uuid: string, actor?: AdminIdentity, mode: "automatic" | "retry" | "backfill" = "automatic") {
+    if (actor) requireAdminPermission(actor.role, "token-receipts.create");
+    const row = this.database.db.prepare("SELECT * FROM token_distributions WHERE uuid = ?").get(uuid) as unknown | undefined;
+    if (!row) throw new TokenReceiptError("Distribution record was not found.", "NOT_FOUND");
+    const distribution = distributionRowToRecord(row);
+    const existing = this.getByDistribution(distribution.uuid) || (distribution.transactionSignature ? this.getBySignature(distribution.transactionSignature) : null);
+    if (existing) {
+      if (actor) this.audit(actor, "TOKEN_RECEIPT_DUPLICATE_PREVENTED", existing.publicId, { distributionId: distribution.uuid });
+      return existing;
+    }
+    if (!distribution.transactionSignature) throw new TokenReceiptError("Distribution transaction signature is missing.", "SIGNATURE_MISSING");
+    if (!["processing", "submitted", "confirmed", "unknown", "failed"].includes(distribution.status)) {
+      throw new TokenReceiptError("Distribution is not submitted yet.", "INVALID_STATE");
+    }
+    const status = distribution.status === "confirmed" ? "confirmed" : distribution.status === "failed" ? "failed" : "submitted";
+    const receipt = this.insertReceipt({
+      distributionId: distribution.uuid,
+      transactionSignature: distribution.transactionSignature,
+      recipientWallet: distribution.recipientWalletAddress,
+      recipientTokenAccount: distribution.recipientTokenAccount,
+      amountBaseUnits: distribution.amountBaseUnits,
+      amountGtree: distribution.amountGtree,
+      publicDescription: sanitizePublicDescription(distribution.publicDescription),
+      status,
+      confirmedAt: status === "confirmed" ? distribution.confirmedAt ?? null : null,
+      blockchainSlot: null,
+      blockchainVerifiedAt: null,
+    });
+    if (actor) {
+      this.audit(actor, mode === "retry" ? "TOKEN_RECEIPT_RETRY_CREATED" : mode === "backfill" ? "TOKEN_RECEIPT_BACKFILLED" : "TOKEN_RECEIPT_AUTO_CREATED", receipt.publicId, {
+        distributionId: distribution.uuid,
+        status,
+      });
+    }
+    return receipt;
+  }
+
   async generateForDistribution(uuid: string, actor: AdminIdentity, mode: "manual" | "automatic" = "manual") {
     requireAdminPermission(actor.role, "token-receipts.create");
     const row = this.database.db.prepare("SELECT * FROM token_distributions WHERE uuid = ?").get(uuid) as unknown | undefined;
@@ -136,6 +173,56 @@ export class TokenReceiptService {
     `).run(verification.status, verification.blockTimeMs ?? now, verification.slot, now, now, publicId);
     this.audit(actor, "TOKEN_RECEIPT_REVERIFIED", publicId, { status: verification.status });
     return this.getPublic(publicId)!;
+  }
+
+  updateReceiptForDistributionStatus(distributionId: string, status: "confirmed" | "failed" | "submitted", verification?: { slot?: number | null; blockTimeMs?: number | null }) {
+    const receipt = this.getByDistribution(distributionId);
+    if (!receipt) return null;
+    const now = this.now();
+    this.database.db.prepare(`
+      UPDATE transaction_receipts SET status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN COALESCE(confirmed_at, ?) ELSE confirmed_at END,
+        blockchain_slot = COALESCE(?, blockchain_slot), blockchain_verified_at = ?, updated_at = ? WHERE public_id = ?
+    `).run(status, status, verification?.blockTimeMs ?? now, verification?.slot ?? null, now, now, receipt.publicId);
+    return this.getPublic(receipt.publicId);
+  }
+
+  async verifyAndMarkDistributionReceipt(distributionId: string, status: "confirmed" | "failed", actor?: AdminIdentity) {
+    const row = this.database.db.prepare("SELECT * FROM token_distributions WHERE uuid = ?").get(distributionId) as unknown | undefined;
+    if (!row) throw new TokenReceiptError("Distribution record was not found.", "NOT_FOUND");
+    const distribution = distributionRowToRecord(row);
+    const receipt = this.ensureReceiptForDistribution(distributionId, actor, "automatic");
+    if (status === "failed") return this.updateReceiptForDistributionStatus(distributionId, "failed");
+    if (!distribution.transactionSignature) throw new TokenReceiptError("Distribution transaction signature is missing.", "SIGNATURE_MISSING");
+    const verification = await this.verifySignature(distribution.transactionSignature, {
+      recipientWallet: distribution.recipientWalletAddress,
+      recipientTokenAccount: distribution.recipientTokenAccount,
+      amountBaseUnits: distribution.amountBaseUnits,
+      requireConfirmed: true,
+    });
+    const updated = this.updateReceiptForDistributionStatus(distributionId, "confirmed", verification);
+    if (actor) this.audit(actor, "TOKEN_RECEIPT_REVERIFIED", receipt.publicId, { distributionId, status: "confirmed" });
+    return updated;
+  }
+
+  backfillDistributionReceipts(actor: AdminIdentity) {
+    requireAdminPermission(actor.role, "token-receipts.create");
+    if (actor.role !== "OWNER") throw new TokenReceiptError("Only OWNER administrators may backfill token receipts.", "DENIED");
+    const rows = this.database.db.prepare(`
+      SELECT uuid FROM token_distributions
+      WHERE transaction_signature IS NOT NULL
+        AND status IN ('processing','submitted','confirmed','unknown','failed')
+        AND uuid NOT IN (
+          SELECT distribution_id FROM transaction_receipts
+          WHERE distribution_id IS NOT NULL AND revoked_at IS NULL
+        )
+      ORDER BY id ASC
+    `).all() as Array<{ uuid: string }>;
+    let created = 0;
+    for (const row of rows) {
+      this.ensureReceiptForDistribution(row.uuid, actor, "backfill");
+      created += 1;
+    }
+    return { checked: rows.length, created };
   }
 
   revoke(publicId: string, actor: AdminIdentity) {

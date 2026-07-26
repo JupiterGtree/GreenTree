@@ -36,6 +36,7 @@ export function TokenDistributionAdmin({
   const router = useRouter();
   const wallet = useWallet();
   const [state, setState] = React.useState({ message: "", error: "", busy: false });
+  const [history, setHistory] = React.useState(list);
   const [preview, setPreview] = React.useState<DistributionRecord | null>(list.items[0]?.status === "previewed" ? list.items[0] : null);
   const [form, setForm] = React.useState({
     recipientWalletAddress: "",
@@ -48,6 +49,7 @@ export function TokenDistributionAdmin({
   });
   const [confirmation, setConfirmation] = React.useState("");
   const [importForm, setImportForm] = React.useState({ transactionSignature: "", publicDescription: "" });
+  const [receiptPanel, setReceiptPanel] = React.useState<{ publicId: string; url: string; signature: string } | null>(null);
 
   async function refresh() {
     router.refresh();
@@ -107,11 +109,31 @@ export function TokenDistributionAdmin({
         headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
         body: JSON.stringify({ phrase: confirmation, mode, signedTransactionBase64 }),
       });
-      const body = await response.json() as { record?: DistributionRecord; error?: string };
+      const body = await response.json() as {
+        success?: boolean;
+        record?: DistributionRecord;
+        transactionSignature?: string;
+        receipt?: { publicId: string; url: string } | null;
+        receiptError?: { code: string; message: string } | null;
+        error?: string;
+      };
       if (!response.ok || !body.record) throw new Error(body.error || "Submission failed.");
       setPreview(body.record);
-      setState({ message: "Submission request accepted.", error: "", busy: false });
-      router.refresh();
+      setHistory((current) => ({
+        ...current,
+        items: current.items.map((item) => item.uuid === body.record!.uuid ? body.record! : item),
+      }));
+      if (body.receipt && body.transactionSignature) {
+        setReceiptPanel({ publicId: body.receipt.publicId, url: body.receipt.url, signature: body.transactionSignature });
+        setState({ message: "Transfer submitted successfully.", error: "", busy: false });
+      } else {
+        setReceiptPanel(null);
+        setState({
+          message: "",
+          error: body.receiptError ? `Transfer submitted, but receipt creation needs retry: ${body.receiptError.message}` : "Transfer submitted, but receipt creation needs retry.",
+          busy: false,
+        });
+      }
     } catch (error) {
       setState({ message: "", error: error instanceof Error ? error.message : "Submission failed.", busy: false });
     }
@@ -124,7 +146,7 @@ export function TokenDistributionAdmin({
         method: "POST",
         headers: { "x-csrf-token": csrfToken },
       });
-      const body = await response.json() as { receipt?: { publicId: string }; error?: string };
+      const body = await response.json() as { receipt?: { publicId: string; publicUrl?: string; url?: string }; error?: string };
       if (!response.ok || !body.receipt) throw new Error(body.error || "Receipt generation failed.");
       setState({ message: `Receipt ${body.receipt.publicId} is ready.`, error: "", busy: false });
       router.refresh();
@@ -266,6 +288,17 @@ export function TokenDistributionAdmin({
                 <Button disabled={realSubmissionDisabled || !serverFunded || confirmation !== "CONFIRM TRANSFER" || state.busy} onClick={() => void submit("SERVER")}>Submit with server fee payer</Button>
                 <Button variant="secondary" disabled={realSubmissionDisabled || !connectedWalletReady || confirmation !== "CONFIRM TRANSFER" || state.busy} onClick={() => void prepareWalletSignature()}>Sign with connected fee payer</Button>
               </div>
+              {receiptPanel && (
+                <div className="rounded-lg border border-gt-emerald/30 bg-gt-emerald/10 p-4">
+                  <h3 className="font-semibold text-gt-emerald-bright">Transfer submitted successfully</h3>
+                  <p className="mt-1 text-xs text-gt-muted">Receipt {receiptPanel.publicId} is available while blockchain confirmation is pending.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <a className="rounded-md bg-gt-emerald px-3 py-2 text-xs font-semibold text-gt-night" href={receiptPanel.url} target="_blank" rel="noreferrer">Open Receipt</a>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void copyText("Receipt link", receiptPanel.url)}>Copy Receipt Link</Button>
+                    <a className="rounded-md border border-gt-border px-3 py-2 text-xs font-semibold text-gt-fg" href={explorerTxUrl(ENV.solscanBaseUrl, receiptPanel.signature)} target="_blank" rel="noreferrer">View on Solscan</a>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="mt-4 text-sm text-gt-muted">Create a preview to inspect the full transaction details.</p>
@@ -279,15 +312,17 @@ export function TokenDistributionAdmin({
         </p>
       )}
 
-      <form onSubmit={importReceipt} className="rounded-lg border border-gt-border bg-gt-charcoal/45 p-5">
-        <h2 className="text-lg font-semibold">Import Existing GTREE Transaction Receipt</h2>
-        <p className="mt-1 text-sm text-gt-muted">OWNER-only. Recipient, amount, mint, and status are derived from Solana Mainnet verification.</p>
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_auto]">
-          <Label text="Solana transaction signature"><Input value={importForm.transactionSignature} onChange={(e) => setImportForm({ ...importForm, transactionSignature: e.target.value })} required /></Label>
-          <Label text="Public Receipt Description"><Input value={importForm.publicDescription} onChange={(e) => setImportForm({ ...importForm, publicDescription: e.target.value })} maxLength={120} placeholder="Community Reward" /></Label>
-          <Button className="self-end" disabled={state.busy}>{state.busy ? "Working..." : "Import Receipt"}</Button>
-        </div>
-      </form>
+      <details className="rounded-lg border border-gt-border bg-gt-charcoal/45 p-5">
+        <summary className="cursor-pointer text-lg font-semibold">Import External Historical Transaction</summary>
+        <form onSubmit={importReceipt} className="mt-4">
+          <p className="text-sm text-gt-muted">OWNER-only. Use only for GTREE transfers performed outside the Token Distribution module.</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_auto]">
+            <Label text="Solana transaction signature"><Input value={importForm.transactionSignature} onChange={(e) => setImportForm({ ...importForm, transactionSignature: e.target.value })} required /></Label>
+            <Label text="Public Receipt Description"><Input value={importForm.publicDescription} onChange={(e) => setImportForm({ ...importForm, publicDescription: e.target.value })} maxLength={120} placeholder="Community Reward" /></Label>
+            <Button className="self-end" disabled={state.busy}>{state.busy ? "Working..." : "Import Receipt"}</Button>
+          </div>
+        </form>
+      </details>
 
       <section className="rounded-lg border border-gt-border">
         <div className="flex items-center justify-between gap-3 border-b border-gt-border p-4">
@@ -300,7 +335,7 @@ export function TokenDistributionAdmin({
               <tr><th className="p-3">Date</th><th className="p-3">Recipient</th><th className="p-3">Amount</th><th className="p-3">Category</th><th className="p-3">Type</th><th className="p-3">Status</th><th className="p-3">Receipt</th><th className="p-3">Signature</th><th className="p-3">Reference</th></tr>
             </thead>
             <tbody>
-              {list.items.map((item) => (
+              {history.items.map((item) => (
                 <tr key={item.uuid} className="border-t border-gt-border align-top">
                   <td className="p-3 text-xs text-gt-muted">{new Date(item.createdAt).toLocaleString()}</td>
                   <td className="p-3"><AddressRow value={item.recipientWalletAddress} /></td>
@@ -315,8 +350,10 @@ export function TokenDistributionAdmin({
                           <a className="text-gt-emerald-bright hover:underline" href={item.receipt.publicUrl} target="_blank" rel="noreferrer">Open Receipt</a>
                           <button type="button" className="text-gt-muted hover:text-gt-emerald-bright" onClick={() => void copyText("Receipt link", item.receipt!.publicUrl)}>Copy Link</button>
                         </>
-                      ) : item.status === "confirmed" && item.transactionSignature ? (
-                        <button type="button" className="text-gt-emerald-bright hover:underline disabled:opacity-50" disabled={state.busy} onClick={() => void generateReceipt(item.uuid)}>Generate Receipt</button>
+                      ) : item.transactionSignature && item.status === "processing" ? (
+                        <span className="text-gt-muted">Creating receipt…</span>
+                      ) : item.transactionSignature && ["submitted", "confirmed", "failed", "unknown"].includes(item.status) ? (
+                        <button type="button" className="text-gt-emerald-bright hover:underline disabled:opacity-50" disabled={state.busy} onClick={() => void generateReceipt(item.uuid)}>Retry Receipt Creation</button>
                       ) : (
                         <span className="text-gt-muted">Unavailable</span>
                       )}
@@ -326,7 +363,7 @@ export function TokenDistributionAdmin({
                   <td className="p-3 text-xs text-gt-muted">{item.externalReference ?? ""}</td>
                 </tr>
               ))}
-              {!list.items.length && <tr><td colSpan={9} className="p-8 text-center text-gt-muted">No distribution records yet.</td></tr>}
+              {!history.items.length && <tr><td colSpan={9} className="p-8 text-center text-gt-muted">No distribution records yet.</td></tr>}
             </tbody>
           </table>
         </div>

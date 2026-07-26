@@ -27,7 +27,7 @@ import { getAdminDatabase, type AdminDatabase } from "@/lib/admin/database";
 import { requireAdminPermission } from "@/lib/admin/permissions";
 import { DISTRIBUTION_SOURCE, type DistributionDashboard, type DistributionRecord } from "@/lib/admin/token-distribution-shared";
 import { receiptUrl } from "@/lib/admin/token-receipt-shared";
-import { TokenReceiptService } from "@/lib/admin/token-receipts";
+import { TokenReceiptError, TokenReceiptService } from "@/lib/admin/token-receipts";
 
 const CATEGORIES = [
   "Community Pool",
@@ -325,22 +325,26 @@ export class TokenDistributionService {
       const status = statuses.value[0];
       if (!status) continue;
       const now = this.now();
-      if (status.err) {
-        this.database.db.prepare("UPDATE token_distributions SET status = 'failed', failure_reason = ?, failed_at = ?, updated_at = ? WHERE uuid = ?")
-          .run(JSON.stringify(status.err).slice(0, 500), now, now, row.uuid);
-        updated += 1;
-      } else if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
-        this.database.db.prepare("UPDATE token_distributions SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, ?), updated_at = ? WHERE uuid = ?")
-          .run(now, now, row.uuid);
-        if (actor) {
+        const receiptService = new TokenReceiptService(this.database, this.connection, this.now);
+        if (status.err) {
+          this.database.db.prepare("UPDATE token_distributions SET status = 'failed', failure_reason = ?, failed_at = ?, updated_at = ? WHERE uuid = ?")
+            .run(JSON.stringify(status.err).slice(0, 500), now, now, row.uuid);
           try {
-            await new TokenReceiptService(this.database, this.connection, this.now).generateForDistribution(row.uuid, actor, "automatic");
+            await receiptService.verifyAndMarkDistributionReceipt(row.uuid, "failed", actor);
+          } catch {
+            // Keep reconciliation moving; receipt retry is idempotent.
+          }
+          updated += 1;
+        } else if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
+          this.database.db.prepare("UPDATE token_distributions SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, ?), updated_at = ? WHERE uuid = ?")
+            .run(now, now, row.uuid);
+          try {
+            await receiptService.verifyAndMarkDistributionReceipt(row.uuid, "confirmed", actor);
           } catch {
             // Reconciliation must not hide the confirmed transfer if receipt verification is temporarily unavailable.
           }
+          updated += 1;
         }
-        updated += 1;
-      }
     }
     if (actor) {
       appendAdminAuditLog(this.database, {
@@ -635,12 +639,23 @@ export class TokenDistributionService {
       await this.connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 0 });
       this.database.db.prepare("UPDATE token_distributions SET status = 'submitted', submitted_at = ?, updated_at = ? WHERE uuid = ?")
         .run(this.now(), this.now(), uuid);
+      let receipt: ReturnType<TokenReceiptService["ensureReceiptForDistribution"]> | null = null;
+      let receiptError: { code: string; message: string } | null = null;
+      try {
+        receipt = new TokenReceiptService(this.database, this.connection, this.now).ensureReceiptForDistribution(uuid, actor, "automatic");
+      } catch (error) {
+        receiptError = {
+          code: error instanceof TokenReceiptError ? error.code : "RECEIPT_CREATE_FAILED",
+          message: error instanceof Error ? error.message.slice(0, 240) : "Receipt creation failed.",
+        };
+      }
       appendAdminAuditLog(this.database, {
         actorUserId: actor.id, actorEmail: actor.email, actorRole: actor.role,
         action: "TOKEN_DISTRIBUTION_TRANSACTION_BROADCAST", targetType: "token_distribution", targetId: uuid,
-        metadata: { signature }, createdAt: this.now(),
+        metadata: { signature, receiptPublicId: receipt?.publicId, receiptError }, createdAt: this.now(),
       });
-      return this.get(uuid, actor);
+      const record = this.get(uuid, actor);
+      return Object.assign(record, { submissionReceipt: receipt, receiptError });
     } catch (error) {
       this.database.db.prepare("UPDATE token_distributions SET status = 'unknown', failure_reason = ?, updated_at = ? WHERE uuid = ?")
         .run(error instanceof Error ? error.message.slice(0, 500) : "Broadcast status is unknown.", this.now(), uuid);

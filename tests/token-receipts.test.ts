@@ -51,6 +51,60 @@ test("confirmed distribution receipt verifies GTREE transfer and prevents duplic
   assert.equal(countRows(context.database, "transaction_receipts"), 1);
 });
 
+test("submitted distribution creates an immediate submitted receipt without manual signature entry", (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  const receipt = context.service.ensureReceiptForDistribution("submitted-1", OWNER);
+  assert.equal(receipt.status, "submitted");
+  assert.equal(receipt.transactionSignature, SIGNATURE);
+  assert.equal(receiptUrl(receipt.publicId), `https://gtree.land/r/${receipt.publicId}`);
+});
+
+test("submitted receipt later updates to confirmed on the same public ID", async (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  const receipt = context.service.ensureReceiptForDistribution("submitted-1", OWNER);
+  await context.service.verifyAndMarkDistributionReceipt("submitted-1", "confirmed", OWNER);
+  const updated = context.service.getPublic(receipt.publicId);
+  assert.equal(updated?.publicId, receipt.publicId);
+  assert.equal(updated?.status, "confirmed");
+  assert.equal(countRows(context.database, "transaction_receipts"), 1);
+});
+
+test("failed transaction updates the same receipt to failed", async (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  const receipt = context.service.ensureReceiptForDistribution("submitted-1", OWNER);
+  await context.service.verifyAndMarkDistributionReceipt("submitted-1", "failed", OWNER);
+  assert.equal(context.service.getPublic(receipt.publicId)?.status, "failed");
+  assert.equal(countRows(context.database, "transaction_receipts"), 1);
+});
+
+test("concurrent and retry receipt creation reuses the existing receipt", async (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1");
+  const [a, b] = await Promise.all([
+    Promise.resolve().then(() => context.service.ensureReceiptForDistribution("submitted-1", OWNER, "retry")),
+    Promise.resolve().then(() => context.service.ensureReceiptForDistribution("submitted-1", OWNER, "retry")),
+  ]);
+  assert.equal(a.publicId, b.publicId);
+  assert.equal(countRows(context.database, "transaction_receipts"), 1);
+});
+
+test("backfill creates receipts for existing submitted and confirmed transfers", (t) => {
+  const context = setup();
+  t.after(() => context.database.close());
+  insertSubmittedDistribution(context.database, "submitted-1", "3814fVirtBTYGd1BP3LhqH2HL8dVRyTV4xkZSMULvZtZQEuX8Wu3res5x3u41Y7RgdsgDTCDhz1HWUgsCcBSJqaQ");
+  insertConfirmedDistribution(context.database);
+  const result = context.service.backfillDistributionReceipts(OWNER);
+  assert.equal(result.created, 2);
+  assert.equal(countRows(context.database, "transaction_receipts"), 2);
+});
+
 test("internal note and administrator data never appear in receipt row", async (t) => {
   const context = setup();
   t.after(() => context.database.close());
@@ -157,6 +211,23 @@ function insertConfirmedDistribution(database: AdminDatabase, options: { interna
     RECIPIENT, RECIPIENT_ATA, DISTRIBUTION_SOURCE.mint, DISTRIBUTION_SOURCE.sourceWallet,
     DISTRIBUTION_SOURCE.sourceTokenAccount, options.internalNote ?? "never public",
     options.publicDescription ?? "Community Reward", SIGNATURE, NOW, NOW, NOW,
+  );
+}
+
+function insertSubmittedDistribution(database: AdminDatabase, uuid: string, signature = SIGNATURE) {
+  database.db.prepare(`
+    INSERT INTO token_distributions (
+      uuid, recipient_wallet_address, recipient_token_account, amount_gtree, amount_base_units,
+      token_mint, source_wallet_address, source_token_account, allocation_category, distribution_type,
+      internal_note, public_description, status, transaction_signature, idempotency_key, request_fingerprint,
+      dry_run, created_at, updated_at, submitted_at
+    ) VALUES (
+      ?, ?, ?, '1.23456789', '1234567890', ?, ?, ?, 'Community Pool', 'Community Reward',
+      'internal only', 'Community Reward', 'submitted', ?, ?, ?, 0, ?, ?, ?
+    )
+  `).run(
+    uuid, RECIPIENT, RECIPIENT_ATA, DISTRIBUTION_SOURCE.mint, DISTRIBUTION_SOURCE.sourceWallet,
+    DISTRIBUTION_SOURCE.sourceTokenAccount, signature, `idem-${uuid}`, `fingerprint-${uuid}`, NOW, NOW, NOW,
   );
 }
 
