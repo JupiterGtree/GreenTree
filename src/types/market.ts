@@ -157,7 +157,7 @@ export interface FoundationDirectQuoteResult {
   routePlan: [];
   expiresAt: number;
   quoteId: string;
-  source: "Green Tree Foundation reference price";
+  source: string;
   fetchedAt: string;
   network: "solana-mainnet";
   inputMint: string;

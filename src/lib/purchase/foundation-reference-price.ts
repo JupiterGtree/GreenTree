@@ -145,7 +145,10 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
         validationMs: 0,
         bottleneck: "cache",
       });
-      return cached;
+      return {
+        ...cached,
+        source: `${cached.source} (cached reference, under 60 seconds)`,
+      };
     }
 
     const { candidates, outcomes } = await this.collectCandidates();

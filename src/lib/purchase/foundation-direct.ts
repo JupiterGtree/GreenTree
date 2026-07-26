@@ -262,7 +262,7 @@ export async function createFoundationDirectQuote(
     routePlan: [],
     expiresAt: fetchedAtMs + config.quoteExpirySeconds * 1_000,
     quoteId: `foundation-${request.orderId ?? randomUUID()}-${request.inputLamports}-${outputTokenBaseUnits}`,
-    source: "Green Tree Foundation reference price",
+    source: price.source,
     fetchedAt: new Date(fetchedAtMs).toISOString(),
     network: "solana-mainnet",
     inputMint: WRAPPED_SOL_MINT,
