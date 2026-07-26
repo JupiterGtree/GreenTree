@@ -158,7 +158,7 @@ export function PriceChart() {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-gt-border/80 py-2 text-[11px] text-gt-muted-2">
         <span className="font-medium text-gt-fg">Meteora DAMM v2</span>
         <span>GTREE / SOL pool</span>
-        <span>Execution routed by Jupiter</span>
+        <span>Website purchases settle through Foundation Direct</span>
         <a href={`https://app.meteora.ag/pools/${GTREE_POOL_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-gt-emerald-bright hover:text-gt-offwhite">
           View pool <ExternalLink className="size-3" aria-hidden />
         </a>
@@ -183,7 +183,7 @@ export function PriceChart() {
                 : <>The pool spot price is temporarily unavailable. Select another range or try again later.</>}
             </p>
             {history.lastTradeAt && <p className="mt-2 text-xs text-gt-muted-2">Last recorded Meteora activity: {formatMarketDateTime(history.lastTradeAt)}</p>}
-            <a href={ENV.dexUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-gt-emerald-bright hover:text-gt-offwhite">Buy through Jupiter <ExternalLink className="size-3.5" aria-hidden /></a>
+            <a href={ENV.dexUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-gt-emerald-bright hover:text-gt-offwhite">View external market <ExternalLink className="size-3.5" aria-hidden /></a>
           </div>
         </div>
       )}

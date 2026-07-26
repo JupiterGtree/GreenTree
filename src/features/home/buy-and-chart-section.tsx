@@ -18,7 +18,7 @@ export function BuyAndChartSection() {
           <SectionHeading
             eyebrow="Market Access"
             title="Live market access, without the clutter."
-            description="Verified pool data and a real Jupiter swap route, arranged in one compact market workspace."
+            description="Foundation Direct purchase flow with live market-reference pricing, arranged in one compact market workspace."
             className="mb-6"
           />
         </FadeIn>

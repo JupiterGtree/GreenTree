@@ -129,7 +129,7 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
       const cooldownUntil = await this.options.controlStore.getCooldownUntil();
       if (cooldownUntil > now) {
         throw new FoundationReferencePriceUnavailableError(
-          "Foundation Direct sale is temporarily in cooldown due to extreme market price volatility or rapid movement. Try again later.",
+          "Foundation Direct sale is temporarily in cooldown due to extreme market price movement. Try again later.",
         );
       }
     }
@@ -201,7 +201,7 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
 
     const solPriceUsdCents = median.solPriceUsdCents ?? candidates.find((candidate) => candidate.solPriceUsdCents !== null)?.solPriceUsdCents ?? null;
     const price: ReferencePrice = {
-      source: `Rolling median: ${candidates.map((candidate) => candidate.label).join(", ")}`,
+      source: `GeckoTerminal reference: ${candidates.map((candidate) => candidate.label).join(", ")}`,
       fetchedAt: new Date(),
       priceNumerator: median.numerator,
       priceDenominator: median.denominator,
@@ -303,7 +303,7 @@ export class AggregatedFoundationReferencePriceProvider implements ReferencePric
     });
     const priceSolPerGtree = decimalToRational(pool.currentPriceSol);
     return {
-      label: "Meteora spot",
+      label: "Meteora DAMM v2 snapshot via GeckoTerminal",
       fetchedAt: new Date(),
       numerator: TOKEN_SCALE * priceSolPerGtree.denominator,
       denominator: priceSolPerGtree.numerator * LAMPORTS_PER_SOL,

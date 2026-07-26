@@ -100,7 +100,7 @@ export async function GET(request: Request) {
       changePct,
       spotPrice: quote === "USD" ? snapshot.gtreeUsd : snapshot.priceSol,
       venue: "Meteora DAMM v2",
-      router: "Jupiter",
+      router: "Foundation Direct reference",
       poolAddress: GTREE_POOL_ADDRESS,
       poolUrl: `https://app.meteora.ag/pools/${GTREE_POOL_ADDRESS}`,
       availableFrom: Number.isFinite(firstReferenceTimestamp) ? firstReferenceTimestamp * 1000 : null,

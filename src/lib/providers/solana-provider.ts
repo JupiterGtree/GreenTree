@@ -34,7 +34,7 @@ class LiveSolanaProvider implements SolanaProvider {
         id: "market-pricing",
         label: "Market Pricing",
         status: "public-market",
-        explanation: "Live quotes are routed through Jupiter against the confirmed public Meteora DAMM v2 pool.",
+        explanation: "Website purchases use Green Tree Foundation Direct; market data is reference-only.",
       },
       {
         id: "transfer-freedom",

@@ -17,9 +17,10 @@ export const SERVER_ENV = {
       "https://api.mainnet-beta.solana.com",
   ),
   meteoraPoolApiUrl: validHttpUrl(
-    process.env.METEORA_POOL_API_URL ||
+    process.env.GECKOTERMINAL_POOL_API_URL ||
+      process.env.METEORA_POOL_API_URL ||
       process.env.NEXT_PUBLIC_MARKET_API_URL ||
-      `https://damm-v2.datapi.meteora.ag/pools/${GTREE_POOL_ADDRESS}`,
+      `https://api.geckoterminal.com/api/v2/networks/solana/pools/${GTREE_POOL_ADDRESS}`,
   ),
   jupiterApiBaseUrl: validHttpUrl(
     process.env.JUPITER_API_BASE_URL || "https://lite-api.jup.ag/swap/v1",

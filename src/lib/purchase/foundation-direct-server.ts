@@ -22,7 +22,7 @@ import { SQLiteFoundationSaleControlStore } from "./foundation-direct-db";
 
 const SOL_DECIMALS = 9;
 const DEFAULT_QUOTE_EXPIRY_SECONDS = 15;
-const DEFAULT_PRICE_PROBES = "1000000,5000000,10000000";
+const FOUNDATION_REFERENCE_CACHE_TTL_MS = 60_000;
 let foundationSaleControlStore: SQLiteFoundationSaleControlStore | null = null;
 
 export function createFoundationDirectConfig(): FoundationDirectConfig {
@@ -81,15 +81,15 @@ export function createFoundationDirectConfig(): FoundationDirectConfig {
 
 export function createFoundationDirectPriceProvider(): ReferencePriceProvider {
   return new AggregatedFoundationReferencePriceProvider({
-    probeLamports: readProbeLamports(),
+    probeLamports: [],
     slippageBps: resolveRuntimeSetting("priceProbeSlippageBps") as number,
     maxSourceAgeMs: resolveRuntimeSetting("referenceMaxSourceAgeMs") as number,
     maxDivergenceBps: resolveRuntimeSetting("referenceMaxDivergenceBps") as number,
-    minSourceCount: resolveRuntimeSetting("referenceMinSourceCount") as number,
+    minSourceCount: 1,
     sourceTimeoutMs: resolveRuntimeSetting("referenceSourceTimeoutMs") as number,
     sourceRetries: 1,
     controlStore: getFoundationSaleControlStore(),
-    cacheTtlMs: resolveRuntimeSetting("referenceCacheTtlMs") as number,
+    cacheTtlMs: FOUNDATION_REFERENCE_CACHE_TTL_MS,
   });
 }
 
@@ -216,17 +216,6 @@ function readOptionalBigint(name: string): bigint | null {
   if (!value) return null;
   if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer string.`);
   return BigInt(value);
-}
-
-function readProbeLamports(): bigint[] {
-  const raw = process.env.FOUNDATION_DIRECT_PRICE_PROBE_LAMPORTS?.trim() || DEFAULT_PRICE_PROBES;
-  const probes = raw.split(",").map((value) => {
-    const trimmed = value.trim();
-    if (!/^[1-9]\d*$/.test(trimmed)) throw new Error("FOUNDATION_DIRECT_PRICE_PROBE_LAMPORTS must be comma-separated positive integer lamports.");
-    return BigInt(trimmed);
-  });
-  if (probes.length === 0) throw new Error("At least one Foundation reference-price probe is required.");
-  return probes;
 }
 
 function getFoundationSaleControlStore(): SQLiteFoundationSaleControlStore {

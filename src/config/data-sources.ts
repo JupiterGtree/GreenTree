@@ -1,6 +1,7 @@
 export type DataSourceKey =
   | "solana-rpc"
   | "jupiter-swap"
+  | "external-market"
   | "meteora-pool"
   | "green-tree-documents";
 
@@ -30,29 +31,41 @@ export const DATA_SOURCES: Record<DataSourceKey, DataSourceDefinition> = {
     environmentVariable: "SOLANA_RPC_URL",
     documentationUrl: "https://solana.com/docs/rpc",
   },
-  "jupiter-swap": {
-    name: "Jupiter Swap API",
-    purpose: "SOL-to-GTREE route quotes and user-signed swap transaction construction",
+  "external-market": {
+    name: "External market link",
+    purpose: "Reference-only external market visibility; website purchases do not route through a DEX",
     endpointType: "REST",
     network: "Solana Mainnet",
-    authoritativeStatus: "Official Jupiter API; Metis v1 is legacy and requires a planned Swap V2 migration",
+    authoritativeStatus: "Not used for website purchase execution",
     expectedRefreshIntervalMs: 15_000,
     timeoutMs: 8_000,
-    fallbackPolicy: "No quote and no swap preparation; never create a synthetic route",
+    fallbackPolicy: "No external market execution fallback for website purchases",
+    environmentVariable: null,
+    documentationUrl: "https://www.geckoterminal.com/solana/pools/4EfPeDK4XEfpBXDsu6NwHTaGqh3CzPPT6jCemU5FeWJE",
+  },
+  "jupiter-swap": {
+    name: "Legacy Jupiter API",
+    purpose: "Legacy external market route support only; not used for Green Tree website purchases",
+    endpointType: "REST",
+    network: "Solana Mainnet",
+    authoritativeStatus: "Disabled for Foundation Direct website purchase execution",
+    expectedRefreshIntervalMs: 15_000,
+    timeoutMs: 8_000,
+    fallbackPolicy: "No website purchase execution fallback through Jupiter",
     environmentVariable: "JUPITER_API_BASE_URL",
-    documentationUrl: "https://dev.jup.ag/docs/swap/v1/get-quote",
+    documentationUrl: "https://dev.jup.ag/docs/swap",
   },
   "meteora-pool": {
-    name: "Meteora DAMM v2 pool data",
-    purpose: "Confirmed pool identity, reserves, spot price, SOL conversion, TVL, volume and OHLCV",
+    name: "Meteora DAMM v2 snapshot via GeckoTerminal",
+    purpose: "Reference-only GTREE/SOL market price used by Foundation Direct quotes and charts",
     endpointType: "REST",
     network: "Solana Mainnet",
-    authoritativeStatus: "Official Meteora DAMM v2 public data API",
-    expectedRefreshIntervalMs: 15_000,
+    authoritativeStatus: "Official GeckoTerminal API for the confirmed Meteora DAMM v2 pool",
+    expectedRefreshIntervalMs: 60_000,
     timeoutMs: 8_000,
-    fallbackPolicy: "Return unavailable; zero is accepted only when the field is present and validated",
-    environmentVariable: "METEORA_POOL_API_URL",
-    documentationUrl: "https://docs.meteora.ag/api-reference/damm-v2/pools/pool",
+    fallbackPolicy: "Use a sufficiently recent cached reference only after retry; otherwise stop purchases",
+    environmentVariable: "GECKOTERMINAL_POOL_API_URL",
+    documentationUrl: "https://api.geckoterminal.com/api/v2/networks/solana/pools/4EfPeDK4XEfpBXDsu6NwHTaGqh3CzPPT6jCemU5FeWJE",
   },
   "green-tree-documents": {
     name: "Green Tree official document pack",

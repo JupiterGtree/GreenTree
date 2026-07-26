@@ -809,7 +809,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
       <PurchaseState
         icon={<Loader2 className="size-8 animate-spin text-gt-emerald-bright" aria-hidden />}
         title="Confirm in your wallet"
-        description={quote?.mode === "FOUNDATION_DIRECT" ? "Green Tree prepared a Foundation direct-sale transaction. Verify the SOL payment and GTREE receive amount in your wallet before signing." : "Jupiter prepared a new Solana Mainnet transaction. Verify every value in your wallet before signing."}
+        description={quote?.mode === "FOUNDATION_DIRECT" ? "Green Tree prepared a Foundation direct-sale transaction. Verify the SOL payment and GTREE receive amount in your wallet before signing." : "Green Tree prepared a Solana Mainnet transaction. Verify every value in your wallet before signing."}
       />
     );
   }
@@ -1081,7 +1081,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
               <p className="mt-1 text-xs leading-relaxed text-gt-muted">
                 The estimated output is substantially below the input market value because available liquidity is limited.
                 {marketQuote.quoteLossUsd !== null ? ` Approximate reference-value loss: ${formatUsd(marketQuote.quoteLossUsd)}${marketQuote.quoteLossPct !== null ? ` (${marketQuote.quoteLossPct.toFixed(1)}%)` : ""}.` : ""}
-                {extremeImpact ? " Website purchase is disabled; reduce the amount or use Jupiter with its full safeguards." : " Consider reducing the amount."}
+                {extremeImpact ? " Website purchase is disabled; reduce the amount and request a fresh Foundation quote." : " Consider reducing the amount."}
               </p>
               {highImpact && !extremeImpact && (
                 <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs font-medium text-gt-fg">

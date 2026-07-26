@@ -103,7 +103,10 @@ export async function fetchJson<T>(
         throw new ExternalRequestError(`${source} aborted by client.`, source, "aborted-by-client", null, false);
       }
       lastError = classifyFetchError(error, source);
-      if (attempt < retries && lastError.retryable) continue;
+      if (attempt < retries && lastError.retryable) {
+        await backoff(attempt);
+        continue;
+      }
     } finally {
       clearTimeout(timeout);
       externalAbort?.removeEventListener("abort", onExternalAbort);
@@ -122,4 +125,9 @@ export async function fetchJson<T>(
     }));
   }
   throw failure;
+}
+
+function backoff(attempt: number): Promise<void> {
+  const delayMs = Math.min(1_000, 150 * 2 ** attempt);
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }

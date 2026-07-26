@@ -124,7 +124,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signAndSendTransaction = React.useCallback(async (transaction: VersionedTransaction) => {
-    if (!providerRef.current) throw new Error("Connect your wallet before submitting the swap.");
+    if (!providerRef.current) throw new Error("Connect your wallet before submitting the transaction.");
     const result = await providerRef.current.signAndSendTransaction(transaction);
     return typeof result === "string" ? result : result.signature;
   }, []);
