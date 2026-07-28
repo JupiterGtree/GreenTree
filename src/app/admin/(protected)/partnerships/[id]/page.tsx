@@ -17,6 +17,10 @@ export default async function PartnershipDetailPage({ params }: { params: Promis
   const timeline = repository.timeline(request.id);
   const notes = repository.notes(request.id);
   const canManage = hasAdminPermission(session.user.role, "partnerships.write");
+  const admins = repository.activeAdmins().map((admin) => ({
+    id: String(admin.id),
+    email: String(admin.email),
+  }));
 
   return (
     <section>
@@ -95,7 +99,7 @@ export default async function PartnershipDetailPage({ params }: { params: Promis
                 unread={request.unread}
                 contactData={request.normalizedContact ?? "No contact available"}
                 contactHref={preferredContactHref(request)}
-                admins={repository.activeAdmins()}
+                admins={admins}
                 csrfToken={session.csrfToken}
               />
             </section>
