@@ -230,6 +230,19 @@ const SCHEMA = `
     changed_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS analytics_page_views (
+    id TEXT PRIMARY KEY, occurred_at INTEGER NOT NULL, pathname TEXT NOT NULL,
+    hostname TEXT, method TEXT NOT NULL, referrer TEXT, referrer_domain TEXT,
+    utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_term TEXT, utm_content TEXT,
+    user_agent TEXT, browser TEXT, operating_system TEXT, device_type TEXT NOT NULL,
+    ip_address TEXT, ip_source TEXT, visitor_hash TEXT NOT NULL, country_code TEXT,
+    country_name TEXT, region TEXT, city TEXT, timezone TEXT, latitude REAL, longitude REAL,
+    is_bot INTEGER NOT NULL DEFAULT 0, session_id TEXT, response_status INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS analytics_geo_cache (
+    ip_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, expires_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_admin_sessions_user ON admin_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(idle_expires_at, absolute_expires_at);
   CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_limit
@@ -249,6 +262,13 @@ const SCHEMA = `
     ON support_internal_notes(request_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_setting_history_key
     ON admin_setting_history(setting_key, changed_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_time ON analytics_page_views(occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_path ON analytics_page_views(pathname, occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_page_views(visitor_hash, occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_session ON analytics_page_views(session_id, occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_country ON analytics_page_views(country_code, occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_device ON analytics_page_views(device_type, occurred_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_campaign ON analytics_page_views(utm_campaign, occurred_at);
 `;
 
 export class AdminDatabase {

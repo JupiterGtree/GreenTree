@@ -21,7 +21,9 @@ export type AdminPermission =
   | "token-receipts.create"
   | "token-receipts.import"
   | "token-receipts.reverify"
-  | "token-receipts.revoke";
+  | "token-receipts.revoke"
+  | "analytics.view"
+  | "analytics.ip.view";
 
 const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
   OWNER: new Set([
@@ -46,6 +48,8 @@ const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
     "token-receipts.import",
     "token-receipts.reverify",
     "token-receipts.revoke",
+    "analytics.view",
+    "analytics.ip.view",
   ]),
   ADMIN: new Set([
     "admin.settings.manage",
@@ -58,6 +62,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
     "partnerships.write",
     "support.read",
     "support.write",
+    "analytics.view",
   ]),
   EDITOR: new Set([
     "operations.read",
@@ -65,7 +70,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, ReadonlySet<AdminPermission>> = {
     "news.write",
     "news.publish",
   ]),
-  VIEWER: new Set(["operations.read", "news.read", "partnerships.read", "support.read"]),
+  VIEWER: new Set(["operations.read", "news.read", "partnerships.read", "support.read", "analytics.view"]),
 };
 
 export function hasAdminPermission(role: AdminRole, permission: AdminPermission): boolean {

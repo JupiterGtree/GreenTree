@@ -16,6 +16,7 @@ import {
   Settings2,
   SendToBack,
   Users,
+  BarChart3,
 } from "lucide-react";
 import { AdminSessionControls } from "@/app/admin/(protected)/session-controls";
 import {
@@ -33,13 +34,14 @@ type NavItem = {
   label: string;
   href: string;
   icon: typeof LayoutDashboard;
-  permission?: "partnerships" | "support" | "settings" | "audit" | "users" | "tokenDistributions";
+  permission?: "partnerships" | "support" | "settings" | "audit" | "users" | "tokenDistributions" | "analytics";
 };
 
 const NAVIGATION: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Purchase Operations", href: "/admin/purchase-control", icon: Settings2 },
   { label: "Transactions", href: "/admin/transactions", icon: Activity },
+  { label: "Website Analytics", href: "/admin/analytics", icon: BarChart3, permission: "analytics" },
   { label: "Token Distribution", href: "/admin/token-distributions", icon: SendToBack, permission: "tokenDistributions" },
   { label: "News & Updates", href: "/admin/news", icon: Newspaper },
   { label: "Partnerships", href: "/admin/partnerships", icon: Handshake, permission: "partnerships" },
