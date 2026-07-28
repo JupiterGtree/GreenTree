@@ -158,10 +158,15 @@ export class PartnershipRepository {
   }
 
   activeAdmins() {
-    return this.database.db.prepare(`
+    const rows = this.database.db.prepare(`
       SELECT id, email, role FROM admin_users
       WHERE is_active = 1 AND role IN ('OWNER', 'ADMIN') ORDER BY email
     `).all() as Array<{ id: string; email: string; role: string }>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      email: String(row.email),
+      role: String(row.role),
+    }));
   }
 }
 
