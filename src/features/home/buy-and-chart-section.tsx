@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Suspense } from "react";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { BuyWidget } from "@/features/market/buy-widget";
@@ -7,6 +6,7 @@ import { FadeIn } from "@/components/shared/fade-in";
 import { getSiteContent } from "@/lib/admin/site-content";
 import { MarketSnapshot } from "@/features/market/market-snapshot";
 import { MarketSnapshotSkeleton } from "@/features/market/market-snapshot-skeleton";
+import { MarketRiskDisclaimer } from "@/features/market/market-risk-disclaimer";
 
 export function BuyAndChartSection() {
   const { marketWarning } = getSiteContent();
@@ -36,13 +36,7 @@ export function BuyAndChartSection() {
             </div>
           </FadeIn>
         </div>
-        <p className="mt-6 max-w-3xl text-xs leading-relaxed text-gt-muted-2">
-          {marketWarning} Read the full{" "}
-          <Link href="/docs#token-market-policy" className="text-gt-emerald-bright hover:underline">
-            Token and Market Policy
-          </Link>
-          .
-        </p>
+        <MarketRiskDisclaimer text={marketWarning} />
       </div>
     </section>
   );

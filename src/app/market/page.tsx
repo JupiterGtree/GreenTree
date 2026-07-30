@@ -5,6 +5,7 @@ import { PageCover } from "@/components/shared/page-cover-background";
 import { MarketSnapshot } from "@/features/market/market-snapshot";
 import { MarketSnapshotSkeleton } from "@/features/market/market-snapshot-skeleton";
 import { FoundationPhasePanel } from "@/features/market/foundation-phase-panel";
+import { MarketRiskDisclaimer } from "@/features/market/market-risk-disclaimer";
 import { BuyWidget } from "@/features/market/buy-widget";
 import { TransactionsExplorer } from "@/features/transactions/transactions-explorer";
 import { LiquidityMilestones } from "@/features/liquidity/liquidity-milestones";
@@ -51,7 +52,7 @@ export default async function MarketPage() {
         <div className="mt-6 min-w-0">
           <FoundationSaleProgress fill />
         </div>
-        <p className="mt-6 max-w-3xl text-xs leading-relaxed text-gt-muted-2">{marketWarning}</p>
+        <MarketRiskDisclaimer text={marketWarning} />
       </section>
 
       <section className="container-gt py-10 sm:py-14">
