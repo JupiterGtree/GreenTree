@@ -4,7 +4,7 @@ import { SectionHeading } from "@/components/shared/section-heading";
 import { PageCover } from "@/components/shared/page-cover-background";
 import { MarketSnapshot } from "@/features/market/market-snapshot";
 import { MarketSnapshotSkeleton } from "@/features/market/market-snapshot-skeleton";
-import { PriceChart } from "@/features/market/price-chart";
+import { FoundationPhasePanel } from "@/features/market/foundation-phase-panel";
 import { BuyWidget } from "@/features/market/buy-widget";
 import { TransactionsExplorer } from "@/features/transactions/transactions-explorer";
 import { LiquidityMilestones } from "@/features/liquidity/liquidity-milestones";
@@ -44,7 +44,7 @@ export default async function MarketPage() {
           </div>
           <div className="min-w-0">
             <div className="surface-card min-h-[620px] min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
-              <PriceChart />
+              <FoundationPhasePanel />
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { BuyWidget } from "@/features/market/buy-widget";
-import { PriceChart } from "@/features/market/price-chart";
+import { FoundationPhasePanel } from "@/features/market/foundation-phase-panel";
 import { FadeIn } from "@/components/shared/fade-in";
 import { getSiteContent } from "@/lib/admin/site-content";
 import { MarketSnapshot } from "@/features/market/market-snapshot";
@@ -32,7 +32,7 @@ export function BuyAndChartSection() {
           </FadeIn>
           <FadeIn delay={0.08} className="order-1 min-w-0 lg:order-2">
             <div className="surface-card min-h-[620px] min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
-              <PriceChart />
+              <FoundationPhasePanel />
             </div>
           </FadeIn>
         </div>
