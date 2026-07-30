@@ -272,7 +272,7 @@ export class NewsRepository {
       title: row.title,
       slug: row.slug,
       excerpt: row.excerpt,
-      body: row.body,
+      body: typeof row.body === "string" ? row.body : "",
       status: row.status,
       categoryId: row.category_id,
       category: row.category_name,
@@ -290,7 +290,7 @@ export class NewsRepository {
       archivedAt: row.archived_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      tags,
+      tags: Array.isArray(tags) ? tags.filter((tag) => tag && typeof tag.name === "string" && typeof tag.slug === "string") : [],
     };
   }
 }

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { NewsEditor } from "@/components/admin/news-editor";
 import { hasAdminPermission } from "@/lib/admin/permissions";
 import { getCurrentAdminSession } from "@/lib/admin/request";
-import { getNewsRepository } from "@/lib/news/repository";
+import { getNewsRepository, type NewsHistoryEntry, type NewsPost } from "@/lib/news/repository";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +11,28 @@ export default async function EditNewsPage({ params }: { params: Promise<{ id: s
   const session = await getCurrentAdminSession();
   if (!session) redirect("/admin/login");
   const repository = getNewsRepository();
-  const post = repository.findById((await params).id);
+  const id = (await params).id;
+  let post: NewsPost | null;
+  try {
+    post = repository.findById(id);
+  } catch (error) {
+    console.error("[admin/news] Failed to load news post", { id, error });
+    throw new Error("Unable to load this news post.");
+  }
   if (!post) notFound();
-  const history = repository.history(post.id);
+  let history: NewsHistoryEntry[] = [];
+  try {
+    history = repository.history(post.id);
+  } catch (error) {
+    console.error("[admin/news] Failed to load news history", { id: post.id, error });
+  }
   const canWrite = hasAdminPermission(session.user.role, "news.write");
-  const publiclyVisible = Boolean(repository.findVisibleBySlug(post.slug));
+  let publiclyVisible = false;
+  try {
+    publiclyVisible = Boolean(repository.findVisibleBySlug(post.slug));
+  } catch (error) {
+    console.error("[admin/news] Failed to resolve public visibility", { id: post.id, error });
+  }
   return (
     <section>
       <div className="flex flex-wrap items-end justify-between gap-3">

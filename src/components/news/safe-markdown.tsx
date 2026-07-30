@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
-export function SafeMarkdown({ source }: { source: string }) {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+export function SafeMarkdown({ source }: { source: string | null | undefined }) {
+  // Legacy/news records may contain a NULL body. Treat it as empty content
+  // so a malformed optional field cannot crash a Server Component render.
+  const lines = (typeof source === "string" ? source : "").replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
 
