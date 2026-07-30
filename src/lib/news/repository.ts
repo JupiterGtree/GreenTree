@@ -260,13 +260,20 @@ export class NewsRepository {
   }
 
   private hydrate(row: PostRow): NewsPost {
-    const tags = this.database.db.prepare(`
+    const tagRows = this.database.db.prepare(`
       SELECT t.name, t.slug
       FROM news_tags t
       JOIN news_post_tags pt ON pt.tag_id = t.id
       WHERE pt.post_id = ?
       ORDER BY t.name
     `).all(row.id) as Array<{ name: string; slug: string }>;
+    // node:sqlite rows can have a null prototype. Clone them into plain
+    // objects before passing the post to a Client Component.
+    const tags = Array.isArray(tagRows)
+      ? tagRows
+        .filter((tag) => tag && typeof tag.name === "string" && typeof tag.slug === "string")
+        .map((tag) => ({ name: tag.name, slug: tag.slug }))
+      : [];
     return {
       id: row.id,
       title: row.title,
@@ -290,7 +297,7 @@ export class NewsRepository {
       archivedAt: row.archived_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      tags: Array.isArray(tags) ? tags.filter((tag) => tag && typeof tag.name === "string" && typeof tag.slug === "string") : [],
+      tags,
     };
   }
 }
