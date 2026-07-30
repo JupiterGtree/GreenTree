@@ -137,6 +137,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
     balanceError,
     openDialog,
     signTransaction,
+    adapterName,
     signAndSendTransaction,
   } = useWallet();
   const connected = walletState === "connected" && Boolean(wallet);
@@ -442,6 +443,7 @@ export function BuyWidget({ riskNotice }: { riskNotice: string }) {
             quoteId: payload.orderId || activeQuote.quoteId,
             buyer: wallet.address,
             transaction: btoa(String.fromCharCode(...signedTransaction.serialize())),
+            walletAdapterName: adapterName,
           }),
         });
         const submitPayload = (await submitResponse.json()) as { signature?: string; error?: string };

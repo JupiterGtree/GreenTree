@@ -20,6 +20,7 @@ export interface FoundationSubmissionRecord {
   saleSignerPublicKey: string | null;
   transactionMessageHash: string | null;
   serializedTransaction?: string | null;
+  walletAdapterName?: string | null;
 }
 
 export function decodeAndVerifyBuyerSignedFoundationSubmission(
@@ -42,7 +43,8 @@ export function decodeAndVerifyBuyerSignedFoundationSubmission(
     throw new Error("Prepared Foundation transaction is missing its approved message hash.");
   }
   if (messageHash !== record.transactionMessageHash) {
-    assertPhantomLighthouseAugmentation(transaction, record);
+    if (record.walletAdapterName === "Phantom") assertPhantomLighthouseAugmentation(transaction, record);
+    else throw new Error("Signed Foundation transaction does not match the prepared transaction.");
   }
 
   const signerKeys = transaction.message.staticAccountKeys.slice(0, transaction.message.header.numRequiredSignatures);

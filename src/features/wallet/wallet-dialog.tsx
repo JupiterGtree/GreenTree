@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Loader2, ShieldCheck, Wallet as WalletIcon } from "lucide-react";
 import {
   Dialog,
@@ -9,21 +8,15 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { getWalletOptions, useWallet } from "@/features/wallet/wallet-context";
+import { useWallet } from "@/features/wallet/wallet-context";
 import { cn } from "@/lib/utils";
 
-function subscribeToNothing() {
-  return () => {};
-}
-
 export function WalletDialog() {
-  const { isDialogOpen, closeDialog, connect, state, error } = useWallet();
+  const { isDialogOpen, closeDialog, connect, state, error, wallets } = useWallet();
   const isBusy = state === "connecting";
   // Provider injections can happen before hydration. Defer inspecting them
   // until after the first client render so the initial dialog markup matches
   // the server-rendered neutral state.
-  const mounted = React.useSyncExternalStore(subscribeToNothing, () => true, () => false);
-  const wallets = getWalletOptions(mounted);
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={(open) => !open && closeDialog()}>

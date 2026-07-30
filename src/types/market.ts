@@ -197,7 +197,7 @@ export type BuyWidgetState =
 export interface WalletInfo {
   id: string;
   name: string;
-  icon: "phantom" | "solflare";
+  icon: "phantom" | "solflare" | "backpack" | "generic";
   installed: boolean;
 }
 

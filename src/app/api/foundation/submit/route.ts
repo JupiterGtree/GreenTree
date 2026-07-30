@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       throw new Error("Foundation direct sales are emergency-paused.");
     }
 
-    const body = (await request.json()) as { quoteId?: string; buyer?: string; transaction?: string };
+    const body = (await request.json()) as { quoteId?: string; buyer?: string; transaction?: string; walletAdapterName?: string };
     if (!body.quoteId || !body.buyer || !body.transaction) {
       throw new Error("quoteId, buyer, and signed transaction are required.");
     }
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       throw new Error("This quote blockhash has expired. Request a new quote.");
     }
 
-    const transaction = decodeAndVerifyBuyerSignedFoundationSubmission(body.transaction, quote);
+    const transaction = decodeAndVerifyBuyerSignedFoundationSubmission(body.transaction, { ...quote, walletAdapterName: body.walletAdapterName ?? null });
     addAndVerifyFoundationDelegateSignature(transaction, config.saleSigner);
     const simulation = await connection.simulateTransaction(transaction, {
       sigVerify: false,
