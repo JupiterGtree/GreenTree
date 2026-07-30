@@ -125,6 +125,15 @@ export class NewsRepository {
     return rows.map((row) => this.hydrate(row));
   }
 
+  listPublishedForSitemap(): NewsPost[] {
+    const rows = this.database.db.prepare(`
+      ${SELECT_POST}
+      WHERE p.status = 'PUBLISHED'
+      ORDER BY p.updated_at DESC, p.created_at DESC
+    `).all() as PostRow[];
+    return rows.map((row) => this.hydrate(row));
+  }
+
   latest(limit = 3, now = this.now()): NewsPost[] {
     const rows = this.database.db.prepare(`
       ${SELECT_POST}

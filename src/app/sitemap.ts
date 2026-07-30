@@ -17,13 +17,13 @@ const PUBLIC_PAGES: MetadataRoute.Sitemap = [
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const repository = getNewsRepository();
-  const articles = repository.listVisible({ limit: 100 });
+  const articles = repository.listPublishedForSitemap();
 
   return [
     ...PUBLIC_PAGES,
     ...articles.map((article) => ({
       url: `${SITE_URL}/news/${article.slug}`,
-      lastModified: new Date(article.updatedAt || article.publishedAt || article.createdAt),
+      lastModified: new Date(article.updatedAt),
       changeFrequency: "weekly" as const,
       priority: article.featured ? 0.8 : 0.6,
     })),
