@@ -8,7 +8,6 @@ import { PriceChart } from "@/features/market/price-chart";
 import { BuyWidget } from "@/features/market/buy-widget";
 import { TransactionsExplorer } from "@/features/transactions/transactions-explorer";
 import { LiquidityMilestones } from "@/features/liquidity/liquidity-milestones";
-import { FoundationActivityCard } from "@/features/home/foundation-activity-card";
 import { FoundationSaleProgress } from "@/features/market/foundation-sale-progress";
 import { getSiteContent } from "@/lib/admin/site-content";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,15 +39,12 @@ export default async function MarketPage() {
 
       <section className="container-gt py-4">
         <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <div className="glass-surface-b h-[620px] min-w-0 self-start overflow-y-auto overflow-x-hidden rounded-lg p-5 sm:p-6">
+          <div className="glass-surface-b min-w-0 self-start rounded-lg p-5 sm:p-6">
             <BuyWidget riskNotice={marketWarning} />
           </div>
-          <div className="flex min-w-0 flex-col gap-6">
-            <div className="surface-card min-w-0 shrink-0 overflow-hidden rounded-lg p-5 sm:p-6">
+          <div className="min-w-0">
+            <div className="surface-card min-h-[620px] min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
               <PriceChart />
-            </div>
-            <div className="min-w-0 shrink-0">
-              <FoundationActivityCard limit={15} expanded />
             </div>
           </div>
         </div>

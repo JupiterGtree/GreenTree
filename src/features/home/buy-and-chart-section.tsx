@@ -7,7 +7,6 @@ import { FadeIn } from "@/components/shared/fade-in";
 import { getSiteContent } from "@/lib/admin/site-content";
 import { MarketSnapshot } from "@/features/market/market-snapshot";
 import { MarketSnapshotSkeleton } from "@/features/market/market-snapshot-skeleton";
-import { FoundationActivityCard } from "@/features/home/foundation-activity-card";
 
 export function BuyAndChartSection() {
   const { marketWarning } = getSiteContent();
@@ -26,17 +25,14 @@ export function BuyAndChartSection() {
           <MarketSnapshot compact className="mb-6" />
         </Suspense>
         <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-          <FadeIn className="order-2 min-w-0 lg:order-1 lg:h-full">
-            <div className="glass-surface-b h-[620px] min-w-0 overflow-y-auto overflow-x-hidden rounded-lg p-5 sm:p-6">
+          <FadeIn className="order-2 min-w-0 lg:order-1">
+            <div className="glass-surface-b min-w-0 rounded-lg p-5 sm:p-6">
               <BuyWidget riskNotice={marketWarning} />
             </div>
           </FadeIn>
-          <FadeIn delay={0.08} className="order-1 flex min-w-0 flex-col gap-3 lg:order-2">
-            <div className="surface-card min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
+          <FadeIn delay={0.08} className="order-1 min-w-0 lg:order-2">
+            <div className="surface-card min-h-[620px] min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
               <PriceChart />
-            </div>
-            <div className="min-w-0">
-              <FoundationActivityCard />
             </div>
           </FadeIn>
         </div>
