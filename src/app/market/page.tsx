@@ -40,8 +40,11 @@ export default async function MarketPage() {
 
       <section className="container-gt py-4">
         <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <div className="glass-surface-b flex min-h-[760px] min-w-0 self-start rounded-lg p-5 sm:p-6">
-            <BuyWidget riskNotice={marketWarning} />
+          <div className="min-w-0 self-start">
+            <div className="glass-surface-b flex min-h-[760px] min-w-0 rounded-lg p-5 sm:p-6">
+              <BuyWidget riskNotice={marketWarning} />
+            </div>
+            <MarketRiskDisclaimer text={marketWarning} />
           </div>
           <div className="min-w-0">
             <div className="surface-card flex min-h-[760px] min-w-0 overflow-hidden rounded-lg p-5 sm:p-6">
@@ -52,7 +55,6 @@ export default async function MarketPage() {
         <div className="mt-6 min-w-0">
           <FoundationSaleProgress fill />
         </div>
-        <MarketRiskDisclaimer text={marketWarning} />
       </section>
 
       <section className="container-gt py-10 sm:py-14">

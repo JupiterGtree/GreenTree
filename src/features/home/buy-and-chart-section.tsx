@@ -25,9 +25,12 @@ export function BuyAndChartSection() {
           <MarketSnapshot compact className="mb-6" />
         </Suspense>
         <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-          <FadeIn className="order-2 flex min-w-0 lg:order-1">
-            <div className="glass-surface-b flex min-h-[760px] min-w-0 flex-1 rounded-lg p-5 sm:p-6">
-              <BuyWidget riskNotice={marketWarning} />
+          <FadeIn className="order-2 min-w-0 lg:order-1">
+            <div className="flex min-w-0 flex-col">
+              <div className="glass-surface-b flex min-h-[760px] min-w-0 flex-1 rounded-lg p-5 sm:p-6">
+                <BuyWidget riskNotice={marketWarning} />
+              </div>
+              <MarketRiskDisclaimer text={marketWarning} />
             </div>
           </FadeIn>
           <FadeIn delay={0.08} className="order-1 flex min-w-0 lg:order-2">
@@ -36,7 +39,6 @@ export function BuyAndChartSection() {
             </div>
           </FadeIn>
         </div>
-        <MarketRiskDisclaimer text={marketWarning} />
       </div>
     </section>
   );
