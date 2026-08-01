@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { getMarketSnapshot } from "@/data/market/get-market-snapshot";
 import { getAdminDatabase } from "@/lib/admin/database";
 import { getFoundationTransactions } from "@/lib/admin/operations-data";
@@ -13,11 +13,14 @@ import { PartnershipService, PUBLIC_PARTNERSHIP_CATEGORIES } from "@/lib/partner
 import { getOnChainGtreeBalance, getVerifiedTelegramWallet, getWalletPurchaseHistory, getWalletPurchaseSummary } from "@/lib/telegram/wallet-data";
 import { enqueueNotification, getOutboxCounts } from "@/lib/telegram/notification-outbox";
 import { getTelegramDatabase } from "@/lib/telegram/bot-database";
+import { TokenDistributionError, TokenDistributionService, readDistributionConfig } from "@/lib/admin/token-distributions";
+import type { AdminIdentity } from "@/lib/admin/auth";
+import { solscanTxUrl } from "@/lib/admin/token-receipt-shared";
 
 type TelegramUser = { id: number; username?: string; language_code?: string };
 type TelegramMessage = { message_id: number; chat: { id: number; type?: string }; from?: TelegramUser; text?: string };
 export type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: { id: string; from: TelegramUser; message?: TelegramMessage; data?: string } };
-export type ConversationState = "IDLE" | "SUPPORT_CATEGORY" | "SUPPORT_MESSAGE" | "SUPPORT_REFERENCE" | "PARTNERSHIP_CATEGORY" | "PARTNERSHIP_NAME" | "PARTNERSHIP_CONTACT" | "PARTNERSHIP_PROPOSAL";
+export type ConversationState = "IDLE" | "SUPPORT_CATEGORY" | "SUPPORT_MESSAGE" | "SUPPORT_REFERENCE" | "PARTNERSHIP_CATEGORY" | "PARTNERSHIP_NAME" | "PARTNERSHIP_CONTACT" | "PARTNERSHIP_PROPOSAL" | "DISTRIBUTION_RECIPIENT" | "DISTRIBUTION_AMOUNT" | "DISTRIBUTION_CATEGORY" | "DISTRIBUTION_TYPE" | "DISTRIBUTION_NOTE" | "DISTRIBUTION_DESCRIPTION" | "DISTRIBUTION_REFERENCE";
 
 type TelegramUrlOptions = { baseUrl?: string; path?: string };
 function readBoolean(name: string, fallback: boolean) { const value = process.env[name]?.trim().toLowerCase(); return value ? value === "true" : fallback; }
@@ -57,7 +60,12 @@ export async function telegramApi(method: string, body: Record<string, unknown>)
 }
 function runtimeValue(key: string) { try { const row = getAdminDatabase().db.prepare("SELECT value FROM telegram_runtime_state WHERE key = ?").get(key) as { value?: string } | undefined; return row?.value ?? null; } catch { return null; } }
 function setRuntimeValue(key: string, value: string) { try { getAdminDatabase().db.prepare("INSERT INTO telegram_runtime_state (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(key, value, Date.now()); } catch { /* panel persistence must not break updates */ } }
-export async function removeReplyKeyboard(chatId: string) { return telegramApi("sendMessage", { chat_id: chatId, text: "Public navigation is disabled in this group.", reply_markup: { remove_keyboard: true }, disable_web_page_preview: true }); }
+export async function removeReplyKeyboard(chatId: string) {
+  if (runtimeValue(`telegram_keyboard_removed:${chatId}`) === "1") return null;
+  const result = await telegramApi("sendMessage", { chat_id: chatId, text: " ", reply_markup: { remove_keyboard: true }, disable_web_page_preview: true });
+  setRuntimeValue(`telegram_keyboard_removed:${chatId}`, "1");
+  return result;
+}
 export function adminPanelMarkup() { return { inline_keyboard: [[{ text: "Operations Summary", callback_data: "admin:summary" }, { text: "Service Health", callback_data: "admin:health" }], [{ text: "Pending Quotes", callback_data: "admin:quotes:pending" }, { text: "Recent Purchases", callback_data: "admin:purchases:recent" }], [{ text: "Recent Transactions", callback_data: "admin:transactions:recent" }, { text: "Failed Transactions", callback_data: "admin:transactions:failed" }], [{ text: "Support Queue", callback_data: "admin:support:queue" }, { text: "Partnership Queue", callback_data: "admin:partnerships:queue" }], [{ text: "Analytics Summary", callback_data: "admin:analytics" }, { text: "Distribution Balance", callback_data: "admin:distribution:balance" }], [{ text: "Manual GTREE Distribution", callback_data: "admin:distribution:create" }, { text: "Pending Distributions", callback_data: "admin:distribution:pending" }], [{ text: "Recent Distributions", callback_data: "admin:distribution:recent" }, { text: "Failed Notifications", callback_data: "admin:notifications:failed" }], [{ text: "Refresh Panel", callback_data: "admin:refresh" }]] }; }
 export async function sendAdminOperationsPanel(chatId: string, user: TelegramUser, edit = false) {
   if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) return sendNoMenu(chatId, "Access denied.");
@@ -72,8 +80,15 @@ export async function sendAdminOperationsPanel(chatId: string, user: TelegramUse
 }
 async function handleAdminGroupUpdate(chatId: string, user: TelegramUser, text: string, callback = false) {
   await removeReplyKeyboard(chatId).catch(() => undefined);
-  clearConversation(hashTelegram(String(user.id)), chatId);
-  if (callback && text.startsWith("admin:")) return processAdminCallback(chatId, user, text);
+  const userHash = hashTelegram(String(user.id));
+  if (callback && (text.startsWith("admin:") || text.startsWith("distribution:"))) return processAdminCallback(chatId, user, text);
+  if (!callback && (isGlobalTelegramAction(text) || ["Back", "Cancel", "Main Menu"].includes(text))) {
+    clearConversation(userHash, chatId);
+    return sendAdminOperationsPanel(chatId, user, true);
+  }
+  const conversation = getConversation(userHash, chatId);
+  if (!callback && conversation?.state.startsWith("DISTRIBUTION_")) return processDistributionText(chatId, user, userHash, text, conversation);
+  clearConversation(userHash, chatId);
   return sendAdminOperationsPanel(chatId, user, true);
 }
 
@@ -86,8 +101,10 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
   if (isOperationsChat(chatId)) return { ignored: true, reason: "operations_channel_reports_only" };
   const text = (update.message?.text ?? update.callback_query?.data ?? "").trim();
   if (isAdminChat(chatId)) {
-    if (update.callback_query && text.startsWith("admin:")) {
-      try { await telegramApi("answerCallbackQuery", { callback_query_id: update.callback_query.id, text: isAuthorizedAdmin(user.id) ? undefined : "Access denied." }); } catch { /* best effort */ }
+    if (update.callback_query && (text.startsWith("admin:") || text.startsWith("distribution:"))) {
+      const ownerOnly = text === "admin:distribution:create" || text === "admin:distribution_create" || text.startsWith("distribution:");
+      const notice = !isAuthorizedAdmin(user.id) ? "Access denied." : ownerOnly && !isAuthorizedAdmin(user.id, true) ? "OWNER authorization is required." : undefined;
+      try { await telegramApi("answerCallbackQuery", { callback_query_id: update.callback_query.id, text: notice, show_alert: Boolean(notice) }); } catch { /* best effort */ }
       return handleAdminGroupUpdate(chatId, user, text, true);
     }
     return handleAdminGroupUpdate(chatId, user, text);
@@ -142,15 +159,211 @@ async function processPartnershipCallback(chatId: string, user: TelegramUser, us
 async function processPartnership(chatId: string, user: TelegramUser, userHash: string, text: string, state: { state: ConversationState; payload: Record<string, string> }) { if (text.length < 2) return send(chatId, "Please enter a little more detail.", flowControls()); if (state.state === "PARTNERSHIP_NAME") { setConversation(userHash, chatId, user.username, "PARTNERSHIP_CONTACT", { ...state.payload, nameOrProject: text }); return send(chatId, "Send a contact handle or email.", flowControls()); } if (state.state === "PARTNERSHIP_CONTACT") { setConversation(userHash, chatId, user.username, "PARTNERSHIP_PROPOSAL", { ...state.payload, contact: text, contactType: text.includes("@") ? "EMAIL" : "TELEGRAM" }); return send(chatId, "Describe the proposal in at least 10 characters.", flowControls()); } const result = new PartnershipService().submit({ ...state.payload, proposal: text, startedAt: Date.now() - 2_000 }, "telegram"); try { enqueueNotification({ eventType: "partnership_submitted", entityType: "partnership", entityId: result.requestNumber, idempotencyKey: `partnership-submitted:${result.requestNumber}`, payload: { requestNumber: result.requestNumber, timestamp: Date.now() } }); } catch { /* best effort */ } clearConversation(userHash, chatId); return send(chatId, `Partnership request received.\nReference: ${result.requestNumber}`, mainMenuMarkup()); }
 
 async function serviceStatus(chatId: string) { const config = telegramConfig(); return send(chatId, `Service Status\nWebsite: LIVE\nPurchase API: ${config.purchaseEnabled && resolveRuntimeSetting("purchaseMode") === "FOUNDATION_DIRECT" ? "AVAILABLE" : "PAUSED"}\nTelegram webhook: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nWorker: ${process.env.TELEGRAM_NOTIFICATION_WORKER_ENABLED === "false" ? "PAUSED" : "CONFIGURED"}\nSolana RPC: CONFIGURED`, mainMenuMarkup()); }
+
+type DistributionOperation = { id: string; telegramUserId: string; chatId: string; messageId: number | null; distributionId: string | null; state: string; payload: Record<string, unknown>; terminal: boolean };
+
+function telegramOwnerActor(): AdminIdentity {
+  const row = getAdminDatabase().db.prepare("SELECT id,email,role,display_name FROM admin_users WHERE role = 'OWNER' AND is_active = 1 ORDER BY created_at ASC LIMIT 1").get() as { id: string; email: string; role: "OWNER"; display_name: string | null } | undefined;
+  if (!row) throw new TokenDistributionError("No active OWNER administrator is configured.", "CONFIGURATION");
+  return { id: row.id, email: row.email, role: row.role, displayName: row.display_name };
+}
+
+function distributionOperationRow(id: string): DistributionOperation | null {
+  const row = getTelegramDatabase().prepare("SELECT * FROM telegram_distribution_operations WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  let payload: Record<string, unknown> = {};
+  try { payload = JSON.parse(String(row.payload_json ?? "{}")) as Record<string, unknown>; } catch { /* safe empty state */ }
+  return { id: String(row.id), telegramUserId: String(row.telegram_user_id), chatId: String(row.chat_id), messageId: row.message_id == null ? null : Number(row.message_id), distributionId: row.distribution_id == null ? null : String(row.distribution_id), state: String(row.state), payload, terminal: Number(row.terminal) === 1 };
+}
+
+function saveDistributionOperation(operation: { id: string; telegramUserId: string; chatId: string; messageId?: number | null; distributionId?: string | null; state: string; payload?: Record<string, unknown>; terminal?: boolean }) {
+  const now = Date.now();
+  const payload = JSON.stringify(operation.payload ?? {});
+  getTelegramDatabase().prepare(`INSERT INTO telegram_distribution_operations
+    (id,telegram_user_id,chat_id,message_id,distribution_id,state,payload_json,terminal,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET message_id=excluded.message_id,distribution_id=excluded.distribution_id,state=excluded.state,payload_json=excluded.payload_json,terminal=excluded.terminal,updated_at=excluded.updated_at`).run(
+    operation.id, operation.telegramUserId, operation.chatId, operation.messageId ?? null, operation.distributionId ?? null,
+    operation.state, payload, operation.terminal ? 1 : 0, now, now,
+  );
+}
+
+async function editDistributionOperation(operationId: string, state: string, text: string, replyMarkup: Record<string, unknown> | null, patch: Record<string, unknown> = {}) {
+  const current = distributionOperationRow(operationId);
+  if (!current) return null;
+  const nextPayload = { ...current.payload, ...patch };
+  saveDistributionOperation({ id: operationId, telegramUserId: current.telegramUserId, chatId: current.chatId, messageId: current.messageId, distributionId: current.distributionId, state, payload: nextPayload, terminal: ["CONFIRMED", "FAILED", "CANCELLED", "EXPIRED"].includes(state) });
+  if (current.messageId) {
+    try {
+      await telegramApi("editMessageText", { chat_id: current.chatId, message_id: current.messageId, text, reply_markup: replyMarkup ?? undefined, disable_web_page_preview: true });
+      return current.messageId;
+    } catch (error) {
+      if (/not modified/i.test(String(error))) return current.messageId;
+    }
+  }
+  const sent = await telegramApi("sendMessage", { chat_id: current.chatId, text, reply_markup: replyMarkup ?? undefined, disable_web_page_preview: true }) as { message_id?: number };
+  if (sent.message_id) saveDistributionOperation({ id: operationId, telegramUserId: current.telegramUserId, chatId: current.chatId, messageId: sent.message_id, distributionId: current.distributionId, state, payload: nextPayload, terminal: ["CONFIRMED", "FAILED", "CANCELLED", "EXPIRED"].includes(state) });
+  return sent.message_id ?? null;
+}
+
+function distributionCancelMarkup(operationId: string) { return { inline_keyboard: [[{ text: "Cancel", callback_data: `distribution:cancel:${operationId}` }, { text: "Back to Admin Panel", callback_data: "admin:refresh" }]] }; }
+function distributionStepMarkup(operationId: string) { return distributionCancelMarkup(operationId); }
+function distributionCategoryMarkup(operationId: string) {
+  const categories = new TokenDistributionService().categories;
+  const rows: Array<Array<{ text: string; callback_data: string }>> = categories.map((value, index) => [{ text: value, callback_data: `distribution:category:${operationId}:${index}` }]);
+  rows.push(distributionCancelMarkup(operationId).inline_keyboard[0]);
+  return { inline_keyboard: rows };
+}
+function distributionTypeMarkup(operationId: string) {
+  const types = new TokenDistributionService().distributionTypes;
+  const rows: Array<Array<{ text: string; callback_data: string }>> = types.map((value, index) => [{ text: value, callback_data: `distribution:type:${operationId}:${index}` }]);
+  rows.push(distributionCancelMarkup(operationId).inline_keyboard[0]);
+  return { inline_keyboard: rows };
+}
+
+async function startDistribution(chatId: string, user: TelegramUser) {
+  if (!isAuthorizedAdmin(user.id, true)) { recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", "admin:distribution:create", "DENIED"); return null; }
+  const existing = getTelegramDatabase().prepare("SELECT id FROM telegram_distribution_operations WHERE chat_id = ? AND telegram_user_id = ? AND terminal = 0 ORDER BY updated_at DESC LIMIT 1").get(chatId, String(user.id)) as { id?: string } | undefined;
+  if (existing?.id) return editDistributionOperation(existing.id, "DISTRIBUTION_RECIPIENT", "🌳 New GTREE Distribution\n\nStep 1 of 7\nSend the recipient Solana wallet address.", distributionStepMarkup(existing.id));
+  const id = randomUUID();
+  const sent = await telegramApi("sendMessage", { chat_id: chatId, text: "🌳 New GTREE Distribution\n\nStep 1 of 7\nSend the recipient Solana wallet address.", reply_markup: distributionStepMarkup(id), disable_web_page_preview: true }) as { message_id?: number };
+  saveDistributionOperation({ id, telegramUserId: String(user.id), chatId, messageId: sent.message_id ?? null, state: "DISTRIBUTION_RECIPIENT", payload: {} });
+  setConversation(hashTelegram(String(user.id)), chatId, user.username, "DISTRIBUTION_RECIPIENT", { operationId: id });
+  recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", "admin:distribution:create", "SUCCESS");
+  return sent;
+}
+
+async function processDistributionText(chatId: string, user: TelegramUser, userHash: string, text: string, conversation: { state: ConversationState; payload: Record<string, string> }) {
+  const operationId = conversation.payload.operationId;
+  const operation = operationId ? distributionOperationRow(operationId) : null;
+  if (!operation || operation.telegramUserId !== String(user.id) || operation.chatId !== chatId || operation.terminal) return null;
+  const value = text.trim();
+  if (!value || value.length > 5000) return editDistributionOperation(operation.id, operation.state, "Invalid input. Please try again.", distributionStepMarkup(operation.id));
+  const payload = { ...operation.payload };
+  if (conversation.state === "DISTRIBUTION_RECIPIENT") { payload.recipientWalletAddress = value; setConversation(userHash, chatId, user.username, "DISTRIBUTION_AMOUNT", { operationId }); return editDistributionOperation(operation.id, "DISTRIBUTION_AMOUNT", "🌳 New GTREE Distribution\n\nStep 2 of 7\nSend the GTREE amount (up to 9 decimals).", distributionStepMarkup(operation.id), payload); }
+  if (conversation.state === "DISTRIBUTION_AMOUNT") { payload.amountGtree = value; setConversation(userHash, chatId, user.username, "DISTRIBUTION_CATEGORY", { operationId }); return editDistributionOperation(operation.id, "DISTRIBUTION_CATEGORY", "🌳 New GTREE Distribution\n\nStep 3 of 7\nChoose the allocation category.", distributionCategoryMarkup(operation.id), payload); }
+  if (conversation.state === "DISTRIBUTION_NOTE") { payload.internalNote = value; setConversation(userHash, chatId, user.username, "DISTRIBUTION_DESCRIPTION", { operationId }); return editDistributionOperation(operation.id, "DISTRIBUTION_DESCRIPTION", "🌳 New GTREE Distribution\n\nStep 6 of 7\nSend the public receipt description.", distributionStepMarkup(operation.id), payload); }
+  if (conversation.state === "DISTRIBUTION_DESCRIPTION") { payload.publicDescription = value; setConversation(userHash, chatId, user.username, "DISTRIBUTION_REFERENCE", { operationId }); return editDistributionOperation(operation.id, "DISTRIBUTION_REFERENCE", "🌳 New GTREE Distribution\n\nStep 7 of 7\nSend an external reference, or send - to skip.", distributionStepMarkup(operation.id), payload); }
+  if (conversation.state === "DISTRIBUTION_REFERENCE") { payload.externalReference = value === "-" ? null : value; clearConversation(userHash, chatId); return createDistributionPreview(operation.id, payload, user); }
+  return null;
+}
+
+async function createDistributionPreview(operationId: string, payload: Record<string, unknown>, user: TelegramUser) {
+  const operation = distributionOperationRow(operationId); if (!operation) return null;
+  try {
+    const actor = telegramOwnerActor();
+    const service = new TokenDistributionService();
+    const result = await service.preview({ recipientWalletAddress: String(payload.recipientWalletAddress ?? ""), amountGtree: String(payload.amountGtree ?? ""), allocationCategory: String(payload.allocationCategory ?? ""), distributionType: String(payload.distributionType ?? ""), internalNote: payload.internalNote == null ? undefined : String(payload.internalNote), publicDescription: payload.publicDescription == null ? undefined : String(payload.publicDescription), externalReference: payload.externalReference == null ? undefined : String(payload.externalReference), idempotencyKey: `telegram-distribution:${operationId}` }, actor);
+    const record = result.record; const source = result.dashboard.source;
+    const token = randomBytes(16).toString("hex"); const expires = Date.now() + 60_000;
+    getTelegramDatabase().prepare("INSERT INTO telegram_callback_tokens (token,telegram_user_id,entity_id,expires_at,used_at) VALUES (?,?,?,?,NULL)").run(token, String(user.id), operationId, expires);
+    getTelegramDatabase().prepare("INSERT OR REPLACE INTO telegram_distribution_requests (id,telegram_user_id,state,payload_json,idempotency_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?)").run(operationId, String(user.id), "AWAITING_CONFIRMATION", JSON.stringify({ ...payload, distributionId: record.uuid, confirmationToken: token }), `telegram-distribution:${operationId}`, Date.now(), Date.now());
+    const text = `🌳 GTREE Distribution Preview\n\nStatus: Awaiting OWNER Confirmation\n\nDistribution\nRequest ID: ${record.uuid}\nRecipient: ${record.recipientWalletAddress}\nGTREE Amount: ${record.amountGtree}\nAllocation Category: ${record.allocationCategory}\nDistribution Type: ${record.distributionType}\n\nInfrastructure\nSource Token Account: ${source.sourceTokenAccount}\nGTREE Mint: ${source.mint}\nCurrent Source Balance: ${source.sourceBalanceGtree} GTREE\nFee Payer: ${record.feePayerAddress ?? "Waiting"}\nFee-Payer SOL Balance: ${source.serverSignerSol} SOL\nSigner Readiness: ${source.signerConfigured && source.signerMatchesExpected ? "READY" : "NOT READY"}\n\nExecution\nNetwork: Solana Mainnet\nMode: ${readDistributionConfig().dryRun ? "DRY RUN" : "LIVE"}\nPreview Created: ${new Date(record.createdAt).toLocaleString()}\nPreview Expires: ${new Date(expires).toLocaleString()}`;
+    const markup = { inline_keyboard: [[{ text: "Confirm Real Transfer", callback_data: `distribution:confirm:${token}` }], [{ text: "Edit Wallet", callback_data: `distribution:edit:wallet:${operationId}` }, { text: "Edit Amount", callback_data: `distribution:edit:amount:${operationId}` }], [{ text: "Edit Category", callback_data: `distribution:edit:category:${operationId}` }, { text: "Edit Type", callback_data: `distribution:edit:type:${operationId}` }], [{ text: "Cancel", callback_data: `distribution:cancel:${operationId}` }]] };
+    saveDistributionOperation({ id: operationId, telegramUserId: operation.telegramUserId, chatId: operation.chatId, messageId: operation.messageId, distributionId: record.uuid, state: "AWAITING_CONFIRMATION", payload: { ...payload, distributionId: record.uuid, confirmationToken: token }, terminal: false });
+    try { enqueueNotification({ eventType: "distribution_preview", entityType: "token_distribution", entityId: record.uuid, idempotencyKey: `distribution:${record.uuid}:preview`, payload: { distributionId: record.uuid, amountGtree: record.amountGtree, recipient: record.recipientWalletAddress, category: record.allocationCategory, type: record.distributionType, ownerTelegramId: user.id, status: "Preview", timestamp: Date.now() } }); } catch { /* reporting is best effort */ }
+    return editDistributionOperation(operationId, "AWAITING_CONFIRMATION", text, markup, { distributionId: record.uuid, confirmationToken: token });
+  } catch (error) {
+    const message = error instanceof TokenDistributionError ? error.message : "Preview could not be created.";
+    return editDistributionOperation(operationId, "DISTRIBUTION_REFERENCE", `🌳 Distribution Preview Failed\n\n${message}\n\nCorrect the input and try again, or cancel.`, distributionStepMarkup(operationId));
+  }
+}
+
+async function executeDistribution(operationId: string, user: TelegramUser) {
+  const operation = distributionOperationRow(operationId); if (!operation?.distributionId) return null;
+  const actor = telegramOwnerActor();
+  const service = new TokenDistributionService();
+  const config = readDistributionConfig();
+  if (!config.enabled || config.dryRun) return editDistributionOperation(operationId, "FAILED", "🌳 GTREE Distribution\n\n❌ Real execution is disabled. No transaction was submitted.\nEnable live distribution configuration before confirming.", { inline_keyboard: [[{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+  await editDistributionOperation(operationId, "SUBMITTING", "🌳 Green Tree Admin Distribution\n\n⏳ Submitting transaction to Solana Mainnet…", null);
+  try {
+    const result = await service.submitServerFeePayer(operation.distributionId, config.confirmationPhrase, actor);
+    if (!result.transactionSignature) throw new TokenDistributionError("Transaction signature was not returned.", "SIGNATURE");
+    try { enqueueNotification({ eventType: "distribution_submitted", entityType: "token_distribution", entityId: operation.distributionId, idempotencyKey: `distribution:${operation.distributionId}:submitted`, payload: { distributionId: operation.distributionId, amountGtree: result.amountGtree, recipient: result.recipientWalletAddress, ownerTelegramId: user.id, status: "Submitted", transactionSignature: result.transactionSignature, explorerUrl: solscanTxUrl(result.transactionSignature), timestamp: Date.now() } }); } catch { /* best effort */ }
+    await editDistributionOperation(operationId, "SUBMITTED", `🌳 Green Tree Admin Distribution\n\n⏳ Transaction submitted. Waiting for confirmation…\n\nDistribution ID: ${result.uuid}\nSignature: ${result.transactionSignature}\nSolscan: ${solscanTxUrl(result.transactionSignature)}`, { inline_keyboard: [[{ text: "View on Solscan", url: solscanTxUrl(result.transactionSignature) }]] });
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await service.reconcile(actor).catch(() => undefined);
+      const current = service.get(operation.distributionId, actor);
+      if (current.status === "confirmed" || current.status === "failed") {
+        const receipt = current.receipt;
+        if (current.status === "confirmed") {
+          const confirmedPayload = { distributionId: current.uuid, amountGtree: current.amountGtree, recipient: current.recipientWalletAddress, category: current.allocationCategory, type: current.distributionType, ownerTelegramId: user.id, status: "Confirmed", transactionSignature: current.transactionSignature, explorerUrl: current.transactionSignature ? solscanTxUrl(current.transactionSignature) : undefined, receiptId: receipt?.publicId, receiptUrl: receipt?.publicUrl, timestamp: current.updatedAt };
+          try { enqueueNotification({ eventType: "distribution_confirmed", entityType: "token_distribution", entityId: current.uuid, idempotencyKey: `distribution:${current.uuid}:confirmed`, payload: confirmedPayload }); } catch { /* best effort */ }
+          if (receipt) { try { enqueueNotification({ eventType: "distribution_receipt_generated", entityType: "token_distribution", entityId: current.uuid, idempotencyKey: `distribution:${current.uuid}:receipt:${receipt.publicId}`, payload: { ...confirmedPayload, status: "Receipt Generated" } }); } catch { /* best effort */ } }
+          return editDistributionOperation(operationId, "CONFIRMED", `🌳 Green Tree Admin Distribution\n\n✅ Status: Confirmed\n\nDistribution ID: ${current.uuid}\nRecipient Wallet: ${current.recipientWalletAddress}\nGTREE Amount: ${current.amountGtree}\nAllocation Category: ${current.allocationCategory}\nDistribution Type: ${current.distributionType}\n\nNetwork: Solana Mainnet\nFull Transaction Signature: ${current.transactionSignature}\nConfirmed: ${new Date(current.updatedAt).toLocaleString()}\n\nOfficial Receipt ID: ${receipt?.publicId ?? "Pending"}\nOfficial Receipt URL: ${receipt?.publicUrl ?? "Pending"}\nOWNER Telegram ID: ${user.id}`, { inline_keyboard: [[{ text: "View on Solscan", url: solscanTxUrl(current.transactionSignature!) }, ...(receipt?.publicUrl ? [{ text: "View Official Receipt", url: receipt.publicUrl }] : [])], [{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+        }
+        try { enqueueNotification({ eventType: "distribution_failed", entityType: "token_distribution", entityId: current.uuid, idempotencyKey: `distribution:${current.uuid}:failed`, payload: { distributionId: current.uuid, amountGtree: current.amountGtree, recipient: current.recipientWalletAddress, ownerTelegramId: user.id, status: "Failed", transactionSignature: current.transactionSignature, explorerUrl: current.transactionSignature ? solscanTxUrl(current.transactionSignature) : undefined, timestamp: current.updatedAt } }); } catch { /* best effort */ }
+        return editDistributionOperation(operationId, "FAILED", `🌳 Green Tree Admin Distribution\n\n❌ Status: Failed\n\nDistribution ID: ${current.uuid}\nTransaction submitted: Yes\nSignature: ${current.transactionSignature ?? "Unavailable"}\nReason: ${current.failureReason ?? "On-chain transaction failed."}`, { inline_keyboard: [[{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+      }
+    }
+    return editDistributionOperation(operationId, "SUBMITTED", "🌳 Green Tree Admin Distribution\n\n⏳ Transaction submitted. Confirmation is still pending.\nThe worker/reconciliation process will update the record.", { inline_keyboard: [[{ text: "View on Solscan", url: solscanTxUrl(result.transactionSignature) }], [{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+  } catch (error) {
+    const message = error instanceof TokenDistributionError ? error.message : "Distribution execution failed.";
+    try { enqueueNotification({ eventType: "distribution_failed", entityType: "token_distribution", entityId: operation.distributionId, idempotencyKey: `distribution:${operation.distributionId}:failed`, payload: { distributionId: operation.distributionId, ownerTelegramId: user.id, status: "Failed", errorCategory: message, timestamp: Date.now() } }); } catch { /* best effort */ }
+    return editDistributionOperation(operationId, "FAILED", `🌳 Green Tree Admin Distribution\n\n❌ ${message}\nTransaction submitted: No confirmation available.`, { inline_keyboard: [[{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+  }
+}
+
 async function processAdminCallback(chatId: string, user: TelegramUser, text: string) {
-  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) { recordTelegramAudit(user.id, "ADMIN_CALLBACK", text, "DENIED"); return sendNoMenu(chatId, "Access denied."); }
+  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) { recordTelegramAudit(user.id, "ADMIN_CALLBACK", text, "DENIED"); return null; }
   recordTelegramAudit(user.id, "ADMIN_CALLBACK", text, "SUCCESS");
   if (text === "admin:refresh") return sendAdminOperationsPanel(chatId, user, true);
+  if (text === "admin:distribution:create" || text === "admin:distribution_create") {
+    if (!isAuthorizedAdmin(user.id, true)) { recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "DENIED"); return null; }
+    return startDistribution(chatId, user);
+  }
+  const confirmMatch = /^distribution:confirm:([a-f0-9]{32})$/.exec(text);
+  if (confirmMatch) {
+    if (!isAuthorizedAdmin(user.id, true)) { recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "DENIED"); return null; }
+    const token = confirmMatch[1];
+    const db = getTelegramDatabase();
+    const callback = db.prepare("SELECT entity_id FROM telegram_callback_tokens WHERE token = ? AND telegram_user_id = ? AND used_at IS NULL AND expires_at > ?").get(token, String(user.id), Date.now()) as { entity_id?: string } | undefined;
+    if (!callback?.entity_id) return null;
+    const used = db.prepare("UPDATE telegram_callback_tokens SET used_at = ? WHERE token = ? AND telegram_user_id = ? AND used_at IS NULL AND expires_at > ?").run(Date.now(), token, String(user.id), Date.now());
+    if (used.changes !== 1) return null;
+    const op = distributionOperationRow(callback.entity_id);
+    if (!op || op.chatId !== chatId || op.telegramUserId !== String(user.id) || op.state !== "AWAITING_CONFIRMATION") return null;
+    const locked = db.prepare("UPDATE telegram_distribution_operations SET state = 'SUBMITTING', updated_at = ? WHERE id = ? AND state = 'AWAITING_CONFIRMATION' AND terminal = 0").run(Date.now(), op.id);
+    if (locked.changes !== 1) return editDistributionOperation(op.id, op.state, "This distribution is already processing.", null);
+    recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", "distribution:confirm", "SUCCESS");
+    return executeDistribution(op.id, user);
+  }
+  const cancelMatch = /^distribution:cancel:([0-9a-f-]{36})$/.exec(text);
+  if (cancelMatch) {
+    const op = distributionOperationRow(cancelMatch[1]);
+    if (!op || op.chatId !== chatId || op.telegramUserId !== String(user.id) || op.terminal) return null;
+    if (op.distributionId) { try { await new TokenDistributionService().cancel(op.distributionId, telegramOwnerActor()); } catch { /* cancellation is idempotent at Telegram layer */ } }
+    clearConversation(hashTelegram(String(user.id)), chatId);
+    return editDistributionOperation(op.id, "CANCELLED", "🌳 GTREE Distribution\n\nCancelled. No transaction was submitted.", { inline_keyboard: [[{ text: "Back to Admin Panel", callback_data: "admin:refresh" }]] });
+  }
+  const categoryMatch = /^distribution:category:([0-9a-f-]{36}):(\d+)$/.exec(text);
+  if (categoryMatch) {
+    const op = distributionOperationRow(categoryMatch[1]); const index = Number(categoryMatch[2]); const service = new TokenDistributionService();
+    if (!op || op.telegramUserId !== String(user.id) || op.chatId !== chatId || op.state !== "DISTRIBUTION_CATEGORY" || !service.categories[index]) return null;
+    const payload = { ...op.payload, allocationCategory: service.categories[index] }; setConversation(hashTelegram(String(user.id)), chatId, user.username, "DISTRIBUTION_TYPE", { operationId: op.id });
+    return editDistributionOperation(op.id, "DISTRIBUTION_TYPE", `🌳 New GTREE Distribution\n\nStep 4 of 7\nChoose the distribution type.\nSelected category: ${service.categories[index]}`, distributionTypeMarkup(op.id), payload);
+  }
+  const typeMatch = /^distribution:type:([0-9a-f-]{36}):(\d+)$/.exec(text);
+  if (typeMatch) {
+    const op = distributionOperationRow(typeMatch[1]); const index = Number(typeMatch[2]); const service = new TokenDistributionService();
+    if (!op || op.telegramUserId !== String(user.id) || op.chatId !== chatId || op.state !== "DISTRIBUTION_TYPE" || !service.distributionTypes[index]) return null;
+    const payload = { ...op.payload, distributionType: service.distributionTypes[index] }; setConversation(hashTelegram(String(user.id)), chatId, user.username, "DISTRIBUTION_NOTE", { operationId: op.id });
+    return editDistributionOperation(op.id, "DISTRIBUTION_NOTE", "🌳 New GTREE Distribution\n\nStep 5 of 7\nSend the private internal note.", distributionStepMarkup(op.id), payload);
+  }
+  const editMatch = /^distribution:edit:(wallet|amount|category|type):([0-9a-f-]{36})$/.exec(text);
+  if (editMatch) {
+    const op = distributionOperationRow(editMatch[2]); if (!op || op.telegramUserId !== String(user.id) || op.chatId !== chatId || op.state !== "AWAITING_CONFIRMATION") return null;
+    const state = editMatch[1] === "wallet" ? "DISTRIBUTION_RECIPIENT" : editMatch[1] === "amount" ? "DISTRIBUTION_AMOUNT" : editMatch[1] === "category" ? "DISTRIBUTION_CATEGORY" : "DISTRIBUTION_TYPE";
+    setConversation(hashTelegram(String(user.id)), chatId, user.username, state as ConversationState, { operationId: op.id });
+    if (state === "DISTRIBUTION_CATEGORY") return editDistributionOperation(op.id, state, "Choose the allocation category.", distributionCategoryMarkup(op.id));
+    if (state === "DISTRIBUTION_TYPE") return editDistributionOperation(op.id, state, "Choose the distribution type.", distributionTypeMarkup(op.id));
+    return editDistributionOperation(op.id, state, state === "DISTRIBUTION_RECIPIENT" ? "Send the recipient Solana wallet address." : "Send the GTREE amount.", distributionStepMarkup(op.id));
+  }
   if (text === "admin:summary" || text === "admin:dashboard") { const data = getFoundationTransactions({ view: "ALL", page: 1, pageSize: 1 }); const counts = getOutboxCounts(); return sendAdminResult(chatId, `Operations Summary\nFoundation records: ${data.available ? data.total : "Unavailable"}\nConfirmed: ${data.available ? data.summary.confirmedCount : "Unavailable"}\nOutbox pending/retry/dead: ${counts.pending}/${counts.retry}/${counts.deadLetter}`); }
   if (text === "admin:health") return sendAdminResult(chatId, `Service Health\nWebsite: LIVE\nWebhook: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nWorker: ${process.env.TELEGRAM_NOTIFICATION_WORKER_ENABLED === "false" ? "PAUSED" : "ONLINE"}\nSolana RPC: CONFIGURED`);
   if (text === "admin:distribution:balance" || text === "admin:distribution_balance") { const inventory = await getFoundationInventorySnapshot().catch(() => null); return sendAdminResult(chatId, `Distribution Balance\nSource balance: ${inventory?.spendableGtree ?? "Unavailable"} GTREE\nExecution: ${process.env.TELEGRAM_DISTRIBUTION_DRY_RUN === "true" ? "DRY RUN" : "DISABLED"}`); }
   if (text === "admin:analytics") return sendAdminResult(chatId, "Analytics Summary\nUse the Website Analytics dashboard for the full period breakdown.");
-  if (text === "admin:distribution:create" || text === "admin:distribution_create") { if (!isAuthorizedAdmin(user.id, true)) { recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "DENIED"); return sendNoMenu(chatId, "OWNER authorization required."); } recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "SUCCESS"); return sendAdminResult(chatId, "Manual GTREE Distribution is in dry-run verification mode. No transfer is submitted by this bot verification flow."); }
   if (text === "admin:quotes:pending" || text === "admin:quotes") return sendAdminResult(chatId, "Pending Quotes\n" + adminTransactions("PENDING"));
   if (text === "admin:purchases:recent" || text === "admin:purchases") return sendAdminResult(chatId, "Recent Purchases\n" + adminTransactions("CONFIRMED"));
   if (text === "admin:transactions:recent" || text === "admin:transactions") return sendAdminResult(chatId, "Recent Transactions\n" + adminTransactions("ALL"));
@@ -162,7 +375,16 @@ async function processAdminCallback(chatId: string, user: TelegramUser, text: st
   return sendAdminResult(chatId, "This admin action is not available.");
 }
 async function sendNoMenu(chatId: string, text: string) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup: { remove_keyboard: true }, disable_web_page_preview: true }); }
-async function sendAdminResult(chatId: string, text: string) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup: adminBack(), disable_web_page_preview: true }); }
+async function sendAdminResult(chatId: string, text: string) {
+  const key = `telegram_admin_operation_message_id:${chatId}`;
+  const stored = runtimeValue(key);
+  if (stored) {
+    try { await telegramApi("editMessageText", { chat_id: chatId, message_id: Number(stored), text, reply_markup: adminBack(), disable_web_page_preview: true }); return { message_id: Number(stored) }; } catch { /* recreate only if the stored message is gone */ }
+  }
+  const result = await telegramApi("sendMessage", { chat_id: chatId, text, reply_markup: adminBack(), disable_web_page_preview: true }) as { message_id?: number };
+  if (result.message_id) setRuntimeValue(key, String(result.message_id));
+  return result;
+}
 function recordTelegramAudit(userId: number, action: string, entityId: string, result: "SUCCESS" | "DENIED") { try { getTelegramDatabase().prepare("INSERT INTO telegram_audit_logs (id, telegram_user_id, action, entity_type, entity_id, result, created_at) VALUES (lower(hex(randomblob(16))), ?, ?, 'admin_callback', ?, ?, ?)").run(String(userId), action, entityId.slice(0, 160), result, Date.now()); } catch { /* audit failure must not change authorization outcome */ } }
 function adminTransactions(view: "PENDING" | "CONFIRMED" | "FAILED" | "ALL") { const result = getFoundationTransactions({ view, page: 1, pageSize: 5 }); if (!result.available || !result.items.length) return "No records."; return result.items.map((row) => `${short(row.buyer)} · ${format(row.inputLamports)} SOL · ${row.state} · ${new Date(row.createdAt).toLocaleString()}`).join("\n"); }
 function adminCount(table: string, where: string) { try { const row = getAdminDatabase().db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where}`).get() as { count: number }; return String(row.count); } catch { return "Unavailable"; } }
@@ -179,4 +401,13 @@ function categories() { return { inline_keyboard: [[{ text: "🛒 Purchase issue
 function short(value: string) { return `${value.slice(0, 5)}…${value.slice(-4)}`; }
 function format(raw: string, decimals = 9) { const value = BigInt(raw); const scale = 10n ** BigInt(decimals); const whole = value / scale; const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 4).replace(/0+$/, ""); return fraction ? `${whole}.${fraction}` : whole.toString(); }
 export function parseHistoryPageCallback(value: string): number | null { const match = /^HISTORY_PAGE:([1-9]\d{0,5})$/.exec(value.trim()); if (!match) return null; const page = Number(match[1]); return page >= 1 && page <= 100_000 ? page : null; }
+export function parseDistributionCallback(value: string) {
+  const text = value.trim();
+  const confirm = /^distribution:confirm:([a-f0-9]{32})$/.exec(text); if (confirm) return { action: "confirm" as const, token: confirm[1] };
+  const cancel = /^distribution:cancel:([0-9a-f-]{36})$/.exec(text); if (cancel) return { action: "cancel" as const, operationId: cancel[1] };
+  const category = /^distribution:category:([0-9a-f-]{36}):(\d+)$/.exec(text); if (category) return { action: "category" as const, operationId: category[1], index: Number(category[2]) };
+  const type = /^distribution:type:([0-9a-f-]{36}):(\d+)$/.exec(text); if (type) return { action: "type" as const, operationId: type[1], index: Number(type[2]) };
+  const edit = /^distribution:edit:(wallet|amount|category|type):([0-9a-f-]{36})$/.exec(text); if (edit) return { action: "edit" as const, field: edit[1], operationId: edit[2] };
+  return null;
+}
 export function validateInitData(initData: string) { const token = telegramConfig().token; if (!token || !initData) return null; const params = new URLSearchParams(initData); const hash = params.get("hash"); params.delete("hash"); const dataCheck = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("\n"); const secret = createHmac("sha256", "WebAppData").update(token).digest(); const expected = createHmac("sha256", secret).update(dataCheck).digest("hex"); if (!hash || hash.length !== expected.length || !timingSafeEqual(Buffer.from(hash), Buffer.from(expected))) return null; const authDate = Number(params.get("auth_date")); if (!Number.isFinite(authDate) || Date.now() - authDate * 1_000 > 300_000) return null; try { const user = JSON.parse(params.get("user") ?? "") as { id?: number; username?: string; language_code?: string }; if (!Number.isSafeInteger(user.id) || user.id! < 0) return null; return { telegramUserId: String(user.id), userHash: hashTelegram(String(user.id)), username: user.username, language: user.language_code ?? null, sessionId: randomUUID(), expiresAt: Date.now() + 300_000 }; } catch { return null; } }

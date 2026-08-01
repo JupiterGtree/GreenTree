@@ -20,6 +20,11 @@ export function getTelegramDatabase(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS telegram_conversation_states (telegram_user_id TEXT PRIMARY KEY, state TEXT NOT NULL, payload_json TEXT NOT NULL, expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS telegram_callback_tokens (token TEXT PRIMARY KEY, telegram_user_id TEXT NOT NULL, entity_id TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER);
     CREATE TABLE IF NOT EXISTS telegram_distribution_requests (id TEXT PRIMARY KEY, telegram_user_id TEXT NOT NULL, state TEXT NOT NULL, payload_json TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS telegram_distribution_operations (
+      id TEXT PRIMARY KEY, telegram_user_id TEXT NOT NULL, chat_id TEXT NOT NULL,
+      message_id INTEGER, distribution_id TEXT, state TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+      terminal INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS telegram_notification_outbox (id TEXT PRIMARY KEY, event_type TEXT NOT NULL, entity_id TEXT, idempotency_key TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at INTEGER NOT NULL, last_error TEXT, telegram_message_id TEXT, telegram_chat_id TEXT, processing_started_at INTEGER, created_at INTEGER NOT NULL, delivered_at INTEGER, updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS telegram_notification_attempts (id TEXT PRIMARY KEY, outbox_id TEXT NOT NULL, attempted_at INTEGER NOT NULL, success INTEGER NOT NULL, error TEXT);
     CREATE TABLE IF NOT EXISTS telegram_event_checkpoints (name TEXT PRIMARY KEY, cursor TEXT, updated_at INTEGER NOT NULL);
@@ -47,5 +52,7 @@ function migrateNotificationOutbox(db: DatabaseSync) {
       ON telegram_notification_outbox(entity_id, event_type);
     CREATE INDEX IF NOT EXISTS idx_telegram_attempts_outbox
       ON telegram_notification_attempts(outbox_id, attempted_at);
+    CREATE INDEX IF NOT EXISTS idx_telegram_distribution_operations_active
+      ON telegram_distribution_operations(chat_id, telegram_user_id, terminal, updated_at);
   `);
 }

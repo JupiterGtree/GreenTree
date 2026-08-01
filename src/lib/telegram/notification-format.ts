@@ -4,6 +4,7 @@ import type { NotificationRecord } from "@/lib/telegram/notification-outbox";
 
 export function formatOperationsNotification(notification: NotificationRecord): string {
   const p = notification.payload;
+  if (notification.eventType.startsWith("distribution_")) return formatDistributionNotification(notification);
   const label = notification.eventType.replaceAll("_", " ").toUpperCase();
   const lines = [`<b>Green Tree Operations</b>`, `<b>${escapeHtml(label)}</b>`];
   add(lines, "ID", p.quoteId ?? p.purchaseId ?? p.entityId ?? notification.entityId);
@@ -19,6 +20,25 @@ export function formatOperationsNotification(notification: NotificationRecord): 
     for (const [key, value] of Object.entries(p.metrics as Record<string, unknown>)) add(lines, key, value);
   }
   if (notification.eventType === "notification_worker_warning") add(lines, "Warning", p.category);
+  return lines.join("\n").slice(0, 3900);
+}
+
+function formatDistributionNotification(notification: NotificationRecord): string {
+  const p = notification.payload;
+  const lines = ["🌳 <b>Green Tree Admin Distribution</b>"];
+  add(lines, "Status", p.status ?? notification.eventType.replace("distribution_", ""));
+  add(lines, "Distribution ID", p.distributionId ?? notification.entityId);
+  add(lines, "Amount", p.amountGtree ? `${p.amountGtree} GTREE` : undefined);
+  add(lines, "Recipient", safeShort(p.recipient));
+  add(lines, "Category", p.category);
+  add(lines, "Type", p.type);
+  add(lines, "Network", "Solana Mainnet");
+  add(lines, "Signature", p.transactionSignature);
+  add(lines, "Solscan", p.explorerUrl);
+  add(lines, "Receipt ID", p.receiptId);
+  add(lines, "Receipt", p.receiptUrl);
+  add(lines, "OWNER Telegram ID", p.ownerTelegramId);
+  add(lines, "Time", p.timestamp);
   return lines.join("\n").slice(0, 3900);
 }
 

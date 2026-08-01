@@ -9,7 +9,9 @@ export type NotificationEventType =
   | "purchase_initiated" | "transaction_created" | "transaction_submitted"
   | "transaction_confirmed" | "transaction_failed" | "transaction_expired"
   | "receipt_generated" | "wallet_verified" | "support_submitted"
-  | "partnership_submitted" | "analytics_summary" | "notification_worker_warning";
+  | "partnership_submitted" | "analytics_summary" | "notification_worker_warning"
+  | "distribution_preview" | "distribution_submitted" | "distribution_confirmed"
+  | "distribution_failed" | "distribution_receipt_generated";
 
 export interface NotificationInput {
   eventType: NotificationEventType;

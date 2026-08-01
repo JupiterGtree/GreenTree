@@ -65,6 +65,14 @@ test("worker sends a safe formatted message and records delivery", async () => {
   globalThis.fetch = originalFetch;
 });
 
+test("admin distribution feed formatting exposes Solscan and official receipt", () => {
+  const rendered = format.formatOperationsNotification({ id: "dist-event", eventType: "distribution_confirmed", entityType: "token_distribution", entityId: "dist-1", idempotencyKey: "dist-1:confirmed", payload: { distributionId: "dist-1", amountGtree: "1.25", recipient: "RecipientWallet123456789", category: "Community Pool", type: "Community Reward", status: "Confirmed", transactionSignature: "5NfQsignature", explorerUrl: "https://solscan.io/tx/5NfQsignature", receiptId: "ABC2345678", receiptUrl: "https://gtree.land/r/ABC2345678", ownerTelegramId: 1477040584, timestamp: "2026-08-01T12:00:00.000Z" }, status: "PENDING", attempts: 0, nextAttemptAt: 0, lastError: null, telegramMessageId: null, telegramChatId: "-100123", processingStartedAt: null, createdAt: 0, deliveredAt: null, updatedAt: 0 });
+  assert.match(rendered, /Green Tree Admin Distribution/);
+  assert.match(rendered, /solscan\.io\/tx/);
+  assert.match(rendered, /gtree\.land\/r\/ABC2345678/);
+  assert.match(rendered, /OWNER Telegram ID/);
+});
+
 test("temporary Telegram outage retries and then dead-letters", async () => {
   process.env.TELEGRAM_NOTIFICATION_RETRY_BASE_MS = "1";
   process.env.TELEGRAM_NOTIFICATION_MAX_ATTEMPTS = "2";

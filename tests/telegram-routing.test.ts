@@ -40,3 +40,13 @@ test("admin panel uses only admin callbacks and no public reply keyboard", async
   assert.ok(callbacks.includes("admin:distribution:create"));
   assert.ok(callbacks.every((value) => value.startsWith("admin:")));
 });
+
+test("distribution callbacks carry only opaque, bounded state", async () => {
+  const { parseDistributionCallback } = await import("../src/lib/telegram/server");
+  const operationId = "01234567-89ab-cdef-0123-456789abcdef";
+  assert.deepEqual(parseDistributionCallback(`distribution:cancel:${operationId}`), { action: "cancel", operationId });
+  assert.deepEqual(parseDistributionCallback(`distribution:category:${operationId}:2`), { action: "category", operationId, index: 2 });
+  assert.deepEqual(parseDistributionCallback("distribution:confirm:0123456789abcdef0123456789abcdef"), { action: "confirm", token: "0123456789abcdef0123456789abcdef" });
+  assert.equal(parseDistributionCallback("distribution:confirm:recipient-wallet-secret"), null);
+  assert.equal(parseDistributionCallback(`distribution:cancel:${operationId}:wallet=secret`), null);
+});
