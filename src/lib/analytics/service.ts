@@ -1,7 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { getAdminDatabase } from "@/lib/admin/database";
 import { extractClientIp } from "./request-utils";
-import { lookupCountry } from "./geoip";
 export { extractClientIp, shouldTrack } from "./request-utils";
 
 const text = (v: string | null | undefined, n: number) => { const x = v?.trim(); return x ? x.slice(0, n) : null; };
@@ -20,8 +19,7 @@ export function recordPageView(input: { pathname: string; hostname?: string; met
     const day = new Date().toISOString().slice(0,10); const visitor = createHmac("sha256", secret).update(`${ip.ip ?? "unknown"}:${day}`).digest("hex");
     const url = new URL(input.headers.get("x-forwarded-proto") && input.headers.get("host") ? `${input.headers.get("x-forwarded-proto")}://${input.headers.get("host")}${input.pathname}` : `http://local${input.pathname}`);
     const ref = text(input.headers.get("referer"), 1000); const db=getAdminDatabase(); const now=Date.now();
-    const localCountry = lookupCountry(ip.ip);
-    const geo = { countryCode:text(input.headers.get("x-geo-country"),8) ?? localCountry.countryCode, country:text(input.headers.get("x-geo-country-name"),100) ?? localCountry.countryName, region:text(input.headers.get("x-geo-region"),100), city:text(input.headers.get("x-geo-city"),100), timezone:text(input.headers.get("x-geo-timezone"),80) };
+    const geo = { countryCode:text(input.headers.get("x-geo-country"),8), country:text(input.headers.get("x-geo-country-name"),100), region:text(input.headers.get("x-geo-region"),100), city:text(input.headers.get("x-geo-city"),100), timezone:text(input.headers.get("x-geo-timezone"),80) };
     db.db.prepare(`INSERT INTO analytics_page_views (id,occurred_at,pathname,hostname,method,referrer,referrer_domain,utm_source,utm_medium,utm_campaign,utm_term,utm_content,user_agent,browser,operating_system,device_type,ip_address,ip_source,visitor_hash,country_code,country_name,region,city,timezone,is_bot,session_id,response_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       randomUUID(), now, text(input.pathname,300)!, text(input.hostname,255), input.method, ref, ref ? new URL(ref).hostname : null,
       ...["utm_source","utm_medium","utm_campaign","utm_term","utm_content"].map((k)=>text(url.searchParams.get(k),200)), ua, c.browser, c.os, c.device,
