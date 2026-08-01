@@ -42,12 +42,16 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
   if (text === "/cancel") { clearConversation(userHash); await send(chatId, "Support flow cancelled."); return { cancelled: true }; }
   const conversation = getConversation(userHash);
   if (conversation?.state.startsWith("SUPPORT")) return processSupport(chatId, user, userHash, text, conversation);
-  if (text === "/start" || text === "/help" || text === "❔ Help") return send(chatId, "Welcome to Green Tree. Choose an action below.");
-  if (text === "/price" || text === "📈 Live Price") return price(chatId);
-  if (text === "/activity" || text === "🧾 Recent Activity") return activity(chatId);
-  if (text === "/buy" || text === "🛒 Buy GTREE") return buy(chatId);
-  if (text === "/support" || text === "🛟 Support") { if (!telegramConfig().supportEnabled) return send(chatId, "Telegram Support is temporarily unavailable."); setConversation(userHash, chatId, user.username, "SUPPORT_CATEGORY", {}); return send(chatId, "Choose a support category:", categories()); }
-  if (text === "/status" || text === "🟢 Service Status") return send(chatId, `Bot: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nSales: ${telegramConfig().salesEnabled && resolveRuntimeSetting("purchaseMode") === "FOUNDATION_DIRECT" ? "AVAILABLE" : "PAUSED"}\nSupport: ${telegramConfig().supportEnabled ? "AVAILABLE" : "UNAVAILABLE"}`);
+  // User actions are intentionally button-only. Slash aliases are not
+  // accepted, so administrative or public flows cannot be triggered by
+  // manually typed commands.
+  if (text === "/start") return send(chatId, "Welcome to Green Tree. Choose an action below.");
+  if (text === "❔ Help") return send(chatId, "Choose an action from the menu below.");
+  if (text === "📈 Live Price") return price(chatId);
+  if (text === "🧾 Recent Activity") return activity(chatId);
+  if (text === "🛒 Buy GTREE") return buy(chatId);
+  if (text === "🛟 Support") { if (!telegramConfig().supportEnabled) return send(chatId, "Telegram Support is temporarily unavailable."); setConversation(userHash, chatId, user.username, "SUPPORT_CATEGORY", {}); return send(chatId, "Choose a support category:", categories()); }
+  if (text === "🟢 Service Status") return send(chatId, `Bot: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nSales: ${telegramConfig().salesEnabled && resolveRuntimeSetting("purchaseMode") === "FOUNDATION_DIRECT" ? "AVAILABLE" : "PAUSED"}\nSupport: ${telegramConfig().supportEnabled ? "AVAILABLE" : "UNAVAILABLE"}`);
   return send(chatId, "Please choose an action from the menu below.");
 }
 
