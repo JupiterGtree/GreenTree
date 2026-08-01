@@ -561,8 +561,9 @@ export class AdminDatabase {
         update_id INTEGER PRIMARY KEY, received_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS telegram_conversations (
-        user_hash TEXT PRIMARY KEY, chat_id TEXT NOT NULL, username TEXT,
+        user_hash TEXT NOT NULL, chat_id TEXT NOT NULL, username TEXT,
         state TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}', expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        , PRIMARY KEY (user_hash, chat_id)
       );
       CREATE TABLE IF NOT EXISTS telegram_delivery_attempts (
         id TEXT PRIMARY KEY, support_request_id TEXT REFERENCES support_requests(id) ON DELETE CASCADE,
@@ -573,7 +574,27 @@ export class AdminDatabase {
         key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_telegram_delivery_status ON telegram_delivery_attempts(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_telegram_conversation_expiry ON telegram_conversations(expires_at);
     `);
+    const conversationColumns = this.db.prepare("PRAGMA table_info(telegram_conversations)").all() as Array<{ name: string; pk: number }>;
+    const userHashPrimaryKey = conversationColumns.some((column) => column.name === "user_hash" && column.pk === 1)
+      && conversationColumns.filter((column) => column.pk > 0).length === 1;
+    if (userHashPrimaryKey) {
+      this.db.exec(`
+        BEGIN;
+        ALTER TABLE telegram_conversations RENAME TO telegram_conversations_legacy;
+        CREATE TABLE telegram_conversations (
+          user_hash TEXT NOT NULL, chat_id TEXT NOT NULL, username TEXT,
+          state TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}', expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          PRIMARY KEY (user_hash, chat_id)
+        );
+        INSERT OR IGNORE INTO telegram_conversations (user_hash, chat_id, username, state, payload_json, expires_at, updated_at)
+          SELECT user_hash, chat_id, username, state, payload_json, expires_at, updated_at FROM telegram_conversations_legacy;
+        DROP TABLE telegram_conversations_legacy;
+        CREATE INDEX IF NOT EXISTS idx_telegram_conversation_expiry ON telegram_conversations(expires_at);
+        COMMIT;
+      `);
+    }
   }
 
   private migrateTokenDistributionSchema(): void {
