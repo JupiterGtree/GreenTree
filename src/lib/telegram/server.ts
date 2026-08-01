@@ -12,6 +12,7 @@ import type { SupportTopic } from "@/lib/support/repository";
 import { PartnershipService, PUBLIC_PARTNERSHIP_CATEGORIES } from "@/lib/partnerships/service";
 import { getOnChainGtreeBalance, getVerifiedTelegramWallet, getWalletPurchaseHistory, getWalletPurchaseSummary } from "@/lib/telegram/wallet-data";
 import { enqueueNotification, getOutboxCounts } from "@/lib/telegram/notification-outbox";
+import { getTelegramDatabase } from "@/lib/telegram/bot-database";
 
 type TelegramUser = { id: number; username?: string; language_code?: string };
 type TelegramMessage = { message_id: number; chat: { id: number; type?: string }; from?: TelegramUser; text?: string };
@@ -142,12 +143,13 @@ async function processPartnership(chatId: string, user: TelegramUser, userHash: 
 
 async function serviceStatus(chatId: string) { const config = telegramConfig(); return send(chatId, `Service Status\nWebsite: LIVE\nPurchase API: ${config.purchaseEnabled && resolveRuntimeSetting("purchaseMode") === "FOUNDATION_DIRECT" ? "AVAILABLE" : "PAUSED"}\nTelegram webhook: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nWorker: ${process.env.TELEGRAM_NOTIFICATION_WORKER_ENABLED === "false" ? "PAUSED" : "CONFIGURED"}\nSolana RPC: CONFIGURED`, mainMenuMarkup()); }
 async function processAdminCallback(chatId: string, user: TelegramUser, text: string) {
-  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) return sendNoMenu(chatId, "Access denied.");
+  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) { recordTelegramAudit(user.id, "ADMIN_CALLBACK", text, "DENIED"); return sendNoMenu(chatId, "Access denied."); }
+  recordTelegramAudit(user.id, "ADMIN_CALLBACK", text, "SUCCESS");
   if (text === "admin:summary" || text === "admin:dashboard" || text === "admin:refresh") { const data = getFoundationTransactions({ view: "ALL", page: 1, pageSize: 1 }); const counts = getOutboxCounts(); return sendAdminResult(chatId, `Operations Summary\nFoundation records: ${data.available ? data.total : "Unavailable"}\nConfirmed: ${data.available ? data.summary.confirmedCount : "Unavailable"}\nOutbox pending/retry/dead: ${counts.pending}/${counts.retry}/${counts.deadLetter}`); }
   if (text === "admin:health") return sendAdminResult(chatId, `Service Health\nWebsite: LIVE\nWebhook: ${telegramEnabled() ? "LIVE" : "UNAVAILABLE"}\nWorker: ${process.env.TELEGRAM_NOTIFICATION_WORKER_ENABLED === "false" ? "PAUSED" : "ONLINE"}\nSolana RPC: CONFIGURED`);
   if (text === "admin:distribution:balance" || text === "admin:distribution_balance") { const inventory = await getFoundationInventorySnapshot().catch(() => null); return sendAdminResult(chatId, `Distribution Balance\nSource balance: ${inventory?.spendableGtree ?? "Unavailable"} GTREE\nExecution: ${process.env.TELEGRAM_DISTRIBUTION_DRY_RUN === "true" ? "DRY RUN" : "DISABLED"}`); }
   if (text === "admin:analytics") return sendAdminResult(chatId, "Analytics Summary\nUse the Website Analytics dashboard for the full period breakdown.");
-  if (text === "admin:distribution:create" || text === "admin:distribution_create") { if (!isAuthorizedAdmin(user.id, true)) return sendNoMenu(chatId, "OWNER authorization required."); return sendAdminResult(chatId, "Manual GTREE Distribution is in dry-run verification mode. No transfer is submitted by this bot verification flow."); }
+  if (text === "admin:distribution:create" || text === "admin:distribution_create") { if (!isAuthorizedAdmin(user.id, true)) { recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "DENIED"); return sendNoMenu(chatId, "OWNER authorization required."); } recordTelegramAudit(user.id, "ADMIN_OWNER_ACTION", text, "SUCCESS"); return sendAdminResult(chatId, "Manual GTREE Distribution is in dry-run verification mode. No transfer is submitted by this bot verification flow."); }
   if (text === "admin:quotes:pending" || text === "admin:quotes") return sendAdminResult(chatId, "Pending Quotes\n" + adminTransactions("PENDING"));
   if (text === "admin:purchases:recent" || text === "admin:purchases") return sendAdminResult(chatId, "Recent Purchases\n" + adminTransactions("CONFIRMED"));
   if (text === "admin:transactions:recent" || text === "admin:transactions") return sendAdminResult(chatId, "Recent Transactions\n" + adminTransactions("ALL"));
@@ -160,6 +162,7 @@ async function processAdminCallback(chatId: string, user: TelegramUser, text: st
 }
 async function sendNoMenu(chatId: string, text: string) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup: { remove_keyboard: true }, disable_web_page_preview: true }); }
 async function sendAdminResult(chatId: string, text: string) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup: adminBack(), disable_web_page_preview: true }); }
+function recordTelegramAudit(userId: number, action: string, entityId: string, result: "SUCCESS" | "DENIED") { try { getTelegramDatabase().prepare("INSERT INTO telegram_audit_logs (id, telegram_user_id, action, entity_type, entity_id, result, created_at) VALUES (lower(hex(randomblob(16))), ?, ?, 'admin_callback', ?, ?, ?)").run(String(userId), action, entityId.slice(0, 160), result, Date.now()); } catch { /* audit failure must not change authorization outcome */ } }
 function adminTransactions(view: "PENDING" | "CONFIRMED" | "FAILED" | "ALL") { const result = getFoundationTransactions({ view, page: 1, pageSize: 5 }); if (!result.available || !result.items.length) return "No records."; return result.items.map((row) => `${short(row.buyer)} · ${format(row.inputLamports)} SOL · ${row.state} · ${new Date(row.createdAt).toLocaleString()}`).join("\n"); }
 function adminCount(table: string, where: string) { try { const row = getAdminDatabase().db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where}`).get() as { count: number }; return String(row.count); } catch { return "Unavailable"; } }
 function adminBack() { return { inline_keyboard: [[{ text: "Refresh Panel", callback_data: "admin:refresh" }]] }; }
