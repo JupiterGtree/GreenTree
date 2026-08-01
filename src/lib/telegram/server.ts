@@ -39,7 +39,7 @@ export function isAdminChat(chatId: string) { return Boolean(telegramConfig().ad
 export function isOperationsChat(chatId: string) { return Boolean(telegramConfig().operationsChannelId) && chatId === telegramConfig().operationsChannelId; }
 export function isAuthorizedAdmin(userId: number, ownerOnly = false) { const ids = ownerOnly ? numericIds("TELEGRAM_OWNER_USER_IDS") : new Set([...numericIds("TELEGRAM_OWNER_USER_IDS"), ...numericIds("TELEGRAM_ADMIN_USER_IDS")]); return ids.has(String(userId)); }
 export function conversationKey(userHash: string, chatId: string) { return `${userHash}:${chatId}`; }
-const GLOBAL_TEXT_ACTIONS = new Set(["/start", "/buy", "/connect", "/admin", "My GTREE", "Purchase History", "🔗 Connect Wallet", "📈 Live Price", "🧾 Recent Activity", "🛒 Buy GTREE", "🛟 Support", "🤝 Partnership", "🌐 Open Green Tree", "🟢 Service Status", "❔ Help", "Back", "Cancel", "Main Menu"]);
+const GLOBAL_TEXT_ACTIONS = new Set(["/start", "/buy", "/connect", "/mygtree", "/history", "/price", "/activity", "/support", "/partnership", "/status", "/help", "/admin", "/cancel", "My GTREE", "Purchase History", "🔗 Connect Wallet", "📈 Live Price", "🧾 Recent Activity", "🛒 Buy GTREE", "🛟 Support", "🤝 Partnership", "🌐 Open Green Tree", "🟢 Service Status", "❔ Help", "Back", "Cancel", "Main Menu"]);
 export function isGlobalTelegramAction(value: string) { return GLOBAL_TEXT_ACTIONS.has(value.trim()); }
 export function parsePublicCallback(value: string) { const match = /^public:(buy|connect_wallet|my_gtree|purchase_history|live_price|recent_activity|support|partnership|service_status|main_menu)$/.exec(value.trim()); return match?.[1] ?? null; }
 export function validWebhookSecret(value: string | null) { const expected = telegramConfig().secret; if (!expected || !value) return false; return value.length === expected.length && timingSafeEqual(Buffer.from(value), Buffer.from(expected)); }
@@ -78,14 +78,14 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
   if (isGlobalTelegramAction(text)) {
     clearConversation(userHash, chatId);
     if (text === "/admin") return adminPanel(chatId, user);
-    if (text === "/start" || text === "❔ Help" || text === "Main Menu") return send(chatId, "Welcome to Green Tree. Choose an action below.", mainMenuMarkup());
+    if (text === "/start" || text === "/help" || text === "❔ Help" || text === "Main Menu") return send(chatId, "Welcome to Green Tree. Choose an action below.", mainMenuMarkup());
     if (text === "/buy" || text === "🛒 Buy GTREE") return buy(chatId);
     if (text === "/connect" || text === "🔗 Connect Wallet") return connectWallet(chatId);
-    if (text === "My GTREE") return myGtree(chatId, user.id); if (text === "Purchase History") return history(chatId, user.id, 1);
-    if (text === "📈 Live Price") return price(chatId); if (text === "🧾 Recent Activity") return activity(chatId, 1);
-    if (text === "🛟 Support") return startSupport(chatId, userHash, user); if (text === "🤝 Partnership") return startPartnership(chatId, userHash, user);
+    if (text === "/mygtree" || text === "My GTREE") return myGtree(chatId, user.id); if (text === "/history" || text === "Purchase History") return history(chatId, user.id, 1);
+    if (text === "/price" || text === "📈 Live Price") return price(chatId); if (text === "/activity" || text === "🧾 Recent Activity") return activity(chatId, 1);
+    if (text === "/support" || text === "🛟 Support") return startSupport(chatId, userHash, user); if (text === "/partnership" || text === "🤝 Partnership") return startPartnership(chatId, userHash, user);
     if (text === "🌐 Open Green Tree") return send(chatId, "Open Green Tree:", { inline_keyboard: [[{ text: "Open website", web_app: { url: telegramConfig().miniAppUrl } }]] });
-    if (text === "🟢 Service Status") return serviceStatus(chatId);
+    if (text === "/status" || text === "🟢 Service Status") return serviceStatus(chatId);
     return send(chatId, "Flow cancelled.", mainMenuMarkup());
   }
   const conversation = getConversation(userHash, chatId);
