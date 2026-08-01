@@ -68,7 +68,7 @@ export async function removeReplyKeyboard(chatId: string) {
 }
 export function adminPanelMarkup() { return { inline_keyboard: [[{ text: "Operations Summary", callback_data: "admin:summary" }, { text: "Service Health", callback_data: "admin:health" }], [{ text: "Pending Quotes", callback_data: "admin:quotes:pending" }, { text: "Recent Purchases", callback_data: "admin:purchases:recent" }], [{ text: "Recent Transactions", callback_data: "admin:transactions:recent" }, { text: "Failed Transactions", callback_data: "admin:transactions:failed" }], [{ text: "Support Queue", callback_data: "admin:support:queue" }, { text: "Partnership Queue", callback_data: "admin:partnerships:queue" }], [{ text: "Analytics Summary", callback_data: "admin:analytics" }, { text: "Distribution Balance", callback_data: "admin:distribution:balance" }], [{ text: "Manual GTREE Distribution", callback_data: "admin:distribution:create" }, { text: "Pending Distributions", callback_data: "admin:distribution:pending" }], [{ text: "Recent Distributions", callback_data: "admin:distribution:recent" }, { text: "Failed Notifications", callback_data: "admin:notifications:failed" }], [{ text: "Refresh Panel", callback_data: "admin:refresh" }]] }; }
 export async function sendAdminOperationsPanel(chatId: string, user: TelegramUser, edit = false) {
-  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) return sendNoMenu(chatId, "Access denied.");
+  if (!isAdminChat(chatId) || !isAuthorizedAdmin(user.id)) return null;
   const text = "Green Tree Admin Operations";
   const stored = runtimeValue("telegram_admin_panel_message_id");
   if (stored || edit) {
