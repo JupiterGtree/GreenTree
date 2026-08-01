@@ -10,6 +10,7 @@ type Inventory = { spendableGtree: string; status: string };
 type TelegramWebApp = { initData?: string; close?: () => void; ready?: () => void };
 
 function telegramWebApp(): TelegramWebApp | undefined {
+  if (typeof window === "undefined") return undefined;
   return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
 }
 
