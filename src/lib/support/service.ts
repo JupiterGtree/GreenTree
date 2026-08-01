@@ -5,6 +5,7 @@ import { appendAdminAuditLog } from "@/lib/admin/audit";
 import type { AdminDatabase } from "@/lib/admin/database";
 import { getAdminDatabase } from "@/lib/admin/database";
 import { SUPPORT_STATUSES, SupportRepository, type SupportRequest, type SupportStatus, type SupportTopic } from "./repository";
+import { enqueueNotification } from "@/lib/telegram/notification-outbox";
 
 const TOPIC_MAP: Record<string, SupportTopic> = {
   "Purchase, wallet, or transaction": "PURCHASE", "Website or account issue": "WEBSITE", "General support": "GENERAL",
@@ -50,6 +51,7 @@ export class SupportService {
       this.database.db.prepare(`INSERT INTO support_request_events (request_id, event_type, to_status, created_at) VALUES (?, 'SUBMITTED', 'NEW', ?)`)
         .run(id, now);
     });
+    try { enqueueNotification({ eventType: "support_submitted", entityType: "support_request", entityId: id, idempotencyKey: `support-submitted:${requestNumber}`, payload: { requestNumber, topic, timestamp: now } }); } catch (error) { console.warn("support_notification_enqueue_failed", { message: String(error).slice(0, 160) }); }
     return { success: true as const, duplicate: false, requestNumber };
   }
 

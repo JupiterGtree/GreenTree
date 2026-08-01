@@ -42,5 +42,21 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      name: "greentree-telegram-worker",
+      cwd: "/var/www/greentree/app",
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "src/scripts/telegram-worker.ts",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_memory_restart: "300M",
+      time: true,
+      env: {
+        ...loadShellEnvironment(ENV_FILE),
+        NODE_ENV: "production",
+        TELEGRAM_NOTIFICATION_WORKER_ENABLED: "true",
+      },
+    },
   ],
 };
