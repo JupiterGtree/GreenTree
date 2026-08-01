@@ -8,6 +8,7 @@ import { resolveRuntimeSetting } from "@/lib/admin/runtime-settings";
 import { getFoundationInventorySnapshot } from "@/lib/purchase/foundation-inventory-server";
 import { SupportService } from "@/lib/support/service";
 import type { SupportTopic } from "@/lib/support/repository";
+import { getOnChainGtreeBalance, getVerifiedTelegramWallet, getWalletPurchaseHistory, getWalletPurchaseSummary } from "@/lib/telegram/wallet-data";
 
 type TelegramUser = { id: number; username?: string; language_code?: string };
 type TelegramMessage = { message_id: number; chat: { id: number }; from?: TelegramUser; text?: string };
@@ -42,11 +43,13 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
   if (text === "/cancel") { clearConversation(userHash); await send(chatId, "Support flow cancelled."); return { cancelled: true }; }
   const conversation = getConversation(userHash);
   if (conversation?.state.startsWith("SUPPORT")) return processSupport(chatId, user, userHash, text, conversation);
-  // User actions are intentionally button-only. Slash aliases are not
-  // accepted, so administrative or public flows cannot be triggered by
-  // manually typed commands.
+  const historyPage = parseHistoryPageCallback(text);
+  if (historyPage !== null) return history(chatId, user.id, historyPage);
+  if (text === "HISTORY_BACK") return myGtree(chatId, user.id);
   if (text === "/start") return send(chatId, "Welcome to Green Tree. Choose an action below.");
   if (text === "❔ Help") return send(chatId, "Choose an action from the menu below.");
+  if (text === "My GTREE") return myGtree(chatId, user.id);
+  if (text === "Purchase History") return history(chatId, user.id, 1);
   if (text === "📈 Live Price") return price(chatId);
   if (text === "🧾 Recent Activity") return activity(chatId);
   if (text === "🛒 Buy GTREE") return buy(chatId);
@@ -58,13 +61,38 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
 async function price(chatId: string) { const result = await getMarketSnapshot(); if (result.status !== "ready" || !result.data) return send(chatId, "Market data is currently unavailable."); const data = result.data; return send(chatId, `GTREE live market\nGTREE/USD: $${data.gtreeUsd}\nGTREE/SOL: ${data.priceSol} SOL\nSOL/USD: $${data.solUsd}\nStatus: ${result.stale ? "STALE" : "LIVE"}\nUpdated: ${data.fetchedAt}`, { inline_keyboard: [[{ text: "View Market", url: "https://gtree.land/market" }]] }); }
 async function activity(chatId: string) { const result = getFoundationTransactions({ view: "CONFIRMED", pageSize: 5 }); const rows = result.available ? result.items : []; const content = rows.length ? rows.map((row) => `${short(row.buyer)} · ${format(row.inputLamports)} SOL · ${format(row.outputTokenUnits)} GTREE\n${new Date(row.confirmedAt ?? row.createdAt).toLocaleString()}${row.signature ? `\nhttps://solscan.io/tx/${row.signature}` : ""}`).join("\n\n") : "No confirmed Foundation purchases have been recorded yet."; return send(chatId, content); }
 async function buy(chatId: string) { const config = telegramConfig(); if (!config.salesEnabled || resolveRuntimeSetting("purchaseMode") !== "FOUNDATION_DIRECT") return send(chatId, "Sales through Telegram are temporarily unavailable. You can still view the market or contact Support."); const inventory = await getFoundationInventorySnapshot().catch(() => null); return send(chatId, `Foundation Direct availability: ${inventory?.spendableGtree ?? "Unavailable"} GTREE`, config.miniAppUrl ? { inline_keyboard: [[{ text: "Open Buy App", web_app: { url: config.miniAppUrl } }]] } : undefined); }
+
+async function myGtree(chatId: string, telegramUserId: number) {
+  const wallet = getVerifiedTelegramWallet(String(telegramUserId));
+  if (!wallet) return send(chatId, "Connect and verify your wallet first.");
+  const summary = getWalletPurchaseSummary(wallet);
+  const balance = await getOnChainGtreeBalance(wallet);
+  const balanceText = balance.lookupStatus === "rpc_error" ? "Temporarily unavailable" : `${balance.gtreeBalance} GTREE`;
+  const recent = summary.latestConfirmedPurchases.slice(0, 3).map((row) => `${format(row.gtreeTokenUnits)} GTREE · ${new Date(row.confirmedAt ?? row.createdAt).toLocaleDateString()}${row.transactionSignature ? `\nhttps://solscan.io/tx/${row.transactionSignature}` : ""}`).join("\n\n") || "No confirmed purchases yet.";
+  return send(chatId, `Verified Wallet\n${short(wallet)}\n\nOn-chain GTREE Balance\n${balanceText}\n\nWebsite-confirmed GTREE Purchased\n${format(summary.confirmedGtreeTokenUnits)} GTREE\n\nConfirmed SOL Spent\n${format(summary.confirmedSolLamports)} SOL\n\nConfirmed Purchases: ${summary.confirmedPurchaseCount}\nPending Purchases: ${summary.pendingPurchaseCount}\n\nRecent purchases\n${recent}`, { inline_keyboard: [[{ text: "Purchase History", callback_data: "HISTORY_PAGE:1" }]] });
+}
+
+async function history(chatId: string, telegramUserId: number, page: number) {
+  const wallet = getVerifiedTelegramWallet(String(telegramUserId));
+  if (!wallet) return send(chatId, "Connect and verify your wallet first.");
+  const result = getWalletPurchaseHistory(wallet, page, 5);
+  if (!result.items.length) return send(chatId, "No purchases found for your verified wallet.", { inline_keyboard: [[{ text: "Back to My GTREE", callback_data: "HISTORY_BACK" }]] });
+  const content = result.items.map((row) => `${row.status} · ${format(row.gtreeTokenUnits)} GTREE · ${format(row.solLamports)} SOL\n${new Date(row.confirmedAt ?? row.updatedAt ?? row.createdAt).toLocaleString()}${row.transactionSignature ? `\nhttps://solscan.io/tx/${row.transactionSignature}` : ""}`).join("\n\n");
+  const buttons: Array<Array<{ text: string; callback_data: string }>> = [];
+  if (result.page > 1) buttons.push([{ text: "Previous", callback_data: `HISTORY_PAGE:${result.page - 1}` }]);
+  if (result.page < result.totalPages) buttons.push([{ text: "Next", callback_data: `HISTORY_PAGE:${result.page + 1}` }]);
+  buttons.push([{ text: "Back to My GTREE", callback_data: "HISTORY_BACK" }]);
+  return send(chatId, `Purchase History · Page ${result.page}/${result.totalPages}\n\n${content}`, { inline_keyboard: buttons });
+}
+
 async function processSupport(chatId: string, user: TelegramUser, userHash: string, text: string, state: { state: ConversationState; payload: Record<string, string> }) { if (state.state === "SUPPORT_CATEGORY") { const topic = text.replace("SUPPORT_", "") as SupportTopic; if (!["PURCHASE", "WEBSITE", "GENERAL"].includes(topic)) return send(chatId, "Choose a category using the buttons."); setConversation(userHash, chatId, user.username, "SUPPORT_MESSAGE", { topic }); return send(chatId, "Please describe the issue concisely. Never send a seed phrase or private key."); } if (state.state === "SUPPORT_MESSAGE") { if (text.length < 10) return send(chatId, "Please provide at least 10 characters."); setConversation(userHash, chatId, user.username, "SUPPORT_REFERENCE", { ...state.payload, message: text }); return send(chatId, "Optional: send an order ID, transaction signature, or wallet address. Send - to skip."); } const result = new SupportService().submitTelegram({ userHash, chatId, chatHash: hashTelegram(chatId), username: user.username, topic: state.payload.topic as SupportTopic, message: state.payload.message, reference: text === "-" ? undefined : text }); clearConversation(userHash); return send(chatId, `${result.duplicate ? "Your matching ticket already exists" : "Support request received"}.\nTracking code: ${result.requestNumber}`); }
 function getConversation(userHash: string) { const row = getAdminDatabase().db.prepare("SELECT state, payload_json, chat_id FROM telegram_conversations WHERE user_hash = ? AND expires_at > ?").get(userHash, Date.now()) as { state: ConversationState; payload_json: string; chat_id: string } | undefined; return row ? { state: row.state, payload: JSON.parse(row.payload_json) as Record<string, string> } : null; }
 function setConversation(userHash: string, chatId: string, username: string | undefined, state: ConversationState, payload: Record<string, string>) { const now = Date.now(); getAdminDatabase().db.prepare("INSERT INTO telegram_conversations (user_hash, chat_id, username, state, payload_json, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_hash) DO UPDATE SET chat_id=excluded.chat_id, username=excluded.username, state=excluded.state, payload_json=excluded.payload_json, expires_at=excluded.expires_at, updated_at=excluded.updated_at").run(userHash, chatId, username ?? null, state, JSON.stringify(payload), now + 20 * 60_000, now); }
 function clearConversation(userHash: string) { getAdminDatabase().db.prepare("DELETE FROM telegram_conversations WHERE user_hash = ?").run(userHash); }
 function send(chatId: string, text: string, reply_markup: Record<string, unknown> = menu()) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup, disable_web_page_preview: true }); }
-function menu() { return { keyboard: [[{ text: "🛒 Buy GTREE" }, { text: "📈 Live Price" }], [{ text: "🧾 Recent Activity" }, { text: "🛟 Support" }], [{ text: "🌐 Open Green Tree", web_app: { url: telegramConfig().miniAppUrl || "https://gtree.land" } }, { text: "🟢 Service Status" }], [{ text: "❔ Help" }]], resize_keyboard: true }; }
+function menu() { return { keyboard: [[{ text: "🛒 Buy GTREE" }, { text: "📈 Live Price" }], [{ text: "My GTREE" }, { text: "Purchase History" }], [{ text: "🧾 Recent Activity" }, { text: "🛟 Support" }], [{ text: "🌐 Open Green Tree", web_app: { url: telegramConfig().miniAppUrl || "https://gtree.land" } }, { text: "🟢 Service Status" }], [{ text: "❔ Help" }]], resize_keyboard: true }; }
 function categories() { return { inline_keyboard: [[{ text: "🛒 Purchase issue", callback_data: "SUPPORT_PURCHASE" }, { text: "🛠 Technical issue", callback_data: "SUPPORT_WEBSITE" }], [{ text: "🌳 Token information", callback_data: "SUPPORT_GENERAL" }], [{ text: "↩️ Cancel", callback_data: "/cancel" }]] }; }
 function short(value: string) { return `${value.slice(0, 5)}…${value.slice(-4)}`; }
-function format(raw: string) { const value = BigInt(raw); const whole = value / 1_000_000_000n; const fraction = (value % 1_000_000_000n).toString().padStart(9, "0").slice(0, 4).replace(/0+$/, ""); return fraction ? `${whole}.${fraction}` : whole.toString(); }
+function format(raw: string, decimals = 9) { const value = BigInt(raw); const scale = 10n ** BigInt(decimals); const whole = value / scale; const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 4).replace(/0+$/, ""); return fraction ? `${whole}.${fraction}` : whole.toString(); }
+export function parseHistoryPageCallback(value: string): number | null { const match = /^HISTORY_PAGE:([1-9]\d{0,5})$/.exec(value.trim()); if (!match) return null; const page = Number(match[1]); return page >= 1 && page <= 100_000 ? page : null; }
 export function validateInitData(initData: string) { const token = telegramConfig().token; if (!token || !initData) return null; const params = new URLSearchParams(initData); const hash = params.get("hash"); params.delete("hash"); const dataCheck = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("\n"); const secret = createHmac("sha256", "WebAppData").update(token).digest(); const expected = createHmac("sha256", secret).update(dataCheck).digest("hex"); if (!hash || hash.length !== expected.length || !timingSafeEqual(Buffer.from(hash), Buffer.from(expected))) return null; const authDate = Number(params.get("auth_date")); if (!Number.isFinite(authDate) || Date.now() - authDate * 1000 > 300_000) return null; const user = params.get("user"); return user ? { userHash: hashTelegram(JSON.parse(user).id.toString()), language: JSON.parse(user).language_code ?? null, sessionId: randomUUID(), expiresAt: Date.now() + 300_000 } : null; }

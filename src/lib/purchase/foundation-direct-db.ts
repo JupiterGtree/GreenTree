@@ -40,6 +40,35 @@ export interface DbQuote {
   quoteInputUsd?: string | null;
 }
 
+export interface WalletPurchaseRecord {
+  purchaseId: string;
+  wallet: string;
+  solLamports: string;
+  gtreeTokenUnits: string;
+  status: DbQuote["status"];
+  transactionSignature: string | null;
+  createdAt: number;
+  updatedAt: number;
+  confirmedAt: number | null;
+}
+
+export interface WalletPurchaseHistory {
+  items: WalletPurchaseRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface WalletPurchaseSummary {
+  wallet: string;
+  confirmedGtreeTokenUnits: string;
+  confirmedSolLamports: string;
+  confirmedPurchaseCount: number;
+  pendingPurchaseCount: number;
+  latestConfirmedPurchases: WalletPurchaseRecord[];
+}
+
 export class SQLiteFoundationSaleControlStore implements FoundationSaleControlStore {
   private db: any;
 
@@ -448,6 +477,61 @@ export class SQLiteFoundationSaleControlStore implements FoundationSaleControlSt
     }
   }
 
+  /** Read-only wallet-scoped purchase history. The wallet predicate is exact. */
+  getWalletPurchaseHistory(wallet: string, options: { page?: number; pageSize?: number } = {}): WalletPurchaseHistory {
+    const normalizedWallet = wallet.trim();
+    const page = boundedInteger(options.page, 1, 1, 100_000);
+    const pageSize = boundedInteger(options.pageSize, 10, 1, 50);
+    const total = Number((this.db.prepare("SELECT COUNT(*) AS count FROM quotes WHERE buyer = ?").get(normalizedWallet) as { count: number }).count);
+    const rows = this.db.prepare(`
+      SELECT quote_id, buyer, input_lamports, output_token_units, status, tx_signature,
+             created_at, updated_at, confirmed_at
+      FROM quotes
+      WHERE buyer = ?
+      ORDER BY COALESCE(confirmed_at, updated_at, created_at) DESC, quote_id DESC
+      LIMIT ? OFFSET ?
+    `).all(normalizedWallet, pageSize, (page - 1) * pageSize) as Array<Record<string, unknown>>;
+    return {
+      items: rows.map(mapWalletPurchaseRecord),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    };
+  }
+
+  /** Read-only wallet-scoped totals. Only CONFIRMED rows contribute to totals. */
+  getWalletPurchaseSummary(wallet: string): WalletPurchaseSummary {
+    const normalizedWallet = wallet.trim();
+    const rows = this.db.prepare(`
+      SELECT input_lamports, output_token_units, status
+      FROM quotes WHERE buyer = ?
+    `).all(normalizedWallet) as Array<{ input_lamports: string; output_token_units: string; status: string }>;
+    let confirmedSol = 0n;
+    let confirmedGtree = 0n;
+    let confirmedCount = 0;
+    let pendingCount = 0;
+    for (const row of rows) {
+      if (row.status === "CONFIRMED") {
+        confirmedSol += BigInt(row.input_lamports);
+        confirmedGtree += BigInt(row.output_token_units);
+        confirmedCount += 1;
+      } else if (["CREATED", "BUILT", "CONSUMED", "SUBMITTED"].includes(row.status)) {
+        pendingCount += 1;
+      }
+    }
+    const latest = this.getWalletPurchaseHistory(normalizedWallet, { page: 1, pageSize: 5 }).items
+      .filter((item) => item.status === "CONFIRMED");
+    return {
+      wallet: normalizedWallet,
+      confirmedGtreeTokenUnits: confirmedGtree.toString(),
+      confirmedSolLamports: confirmedSol.toString(),
+      confirmedPurchaseCount: confirmedCount,
+      pendingPurchaseCount: pendingCount,
+      latestConfirmedPurchases: latest,
+    };
+  }
+
   private startOfUtcDay(nowMs: number): number {
     const date = new Date(nowMs);
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -465,4 +549,22 @@ export function ensureFoundationSaleLedger(): void {
 
 function finiteDecimal(value: number | null | undefined): string | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : null;
+}
+
+function boundedInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+  return Number.isInteger(value) ? Math.min(max, Math.max(min, value as number)) : fallback;
+}
+
+function mapWalletPurchaseRecord(row: Record<string, unknown>): WalletPurchaseRecord {
+  return {
+    purchaseId: String(row.quote_id),
+    wallet: String(row.buyer),
+    solLamports: String(row.input_lamports),
+    gtreeTokenUnits: String(row.output_token_units),
+    status: String(row.status) === "CONSUMED" ? "BUILT" : String(row.status) as DbQuote["status"],
+    transactionSignature: row.tx_signature ? String(row.tx_signature) : null,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    confirmedAt: row.confirmed_at == null ? null : Number(row.confirmed_at),
+  };
 }
