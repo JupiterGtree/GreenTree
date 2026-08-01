@@ -5,6 +5,7 @@ import { getMarketSnapshot } from "@/data/market/get-market-snapshot";
 import { getAdminDatabase } from "@/lib/admin/database";
 import { getFoundationTransactions } from "@/lib/admin/operations-data";
 import { resolveRuntimeSetting } from "@/lib/admin/runtime-settings";
+import { PROJECT } from "@/lib/constants/project";
 import { getFoundationInventorySnapshot } from "@/lib/purchase/foundation-inventory-server";
 import { SupportService } from "@/lib/support/service";
 import type { SupportTopic } from "@/lib/support/repository";
@@ -16,10 +17,31 @@ type TelegramMessage = { message_id: number; chat: { id: number }; from?: Telegr
 export type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: { id: string; from: TelegramUser; message?: TelegramMessage; data?: string } };
 type ConversationState = "IDLE" | "SUPPORT_CATEGORY" | "SUPPORT_MESSAGE" | "SUPPORT_REFERENCE" | "SUPPORT_CONFIRMATION";
 
+type TelegramUrlOptions = { baseUrl?: string; path?: string };
+
+function readBoolean(name: string, fallback: boolean) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return fallback;
+  return value === "true";
+}
+
+export function buildTelegramWebAppUrl(options: TelegramUrlOptions = {}) {
+  const rawBase = (options.baseUrl ?? process.env.TELEGRAM_WEB_APP_URL ?? PROJECT.website).trim();
+  const path = options.path ?? process.env.TELEGRAM_PURCHASE_PATH ?? "/market?source=telegram_mini_app&action=buy";
+  let base: URL;
+  try { base = new URL(rawBase); } catch { return null; }
+  if (base.protocol !== "https:" || base.hostname !== "gtree.land") return null;
+  try { return new URL(path, base).toString(); } catch { return null; }
+}
+
 export function telegramConfig() {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() ?? "";
-  return { enabled: process.env.TELEGRAM_BOT_ENABLED === "true" && Boolean(token && secret), token, secret, salesEnabled: process.env.TELEGRAM_SALES_ENABLED === "true", supportEnabled: process.env.TELEGRAM_SUPPORT_ENABLED !== "false", miniAppUrl: process.env.TELEGRAM_MINI_APP_URL?.trim() ?? "", username: process.env.TELEGRAM_BOT_USERNAME?.trim() ?? "" };
+  const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL?.trim() || `${PROJECT.website}/telegram`;
+  const purchaseUrl = buildTelegramWebAppUrl();
+  const connectUrl = buildTelegramWebAppUrl({ baseUrl: miniAppUrl, path: "/telegram?flow=connect" });
+  const purchaseEnabled = readBoolean("TELEGRAM_PURCHASE_ENABLED", readBoolean("TELEGRAM_SALES_ENABLED", false));
+  return { enabled: readBoolean("TELEGRAM_BOT_ENABLED", false) && Boolean(token && secret), token, secret, salesEnabled: purchaseEnabled, purchaseEnabled, supportEnabled: readBoolean("TELEGRAM_SUPPORT_ENABLED", true), miniAppUrl, purchaseUrl, connectUrl, username: process.env.TELEGRAM_BOT_USERNAME?.trim() ?? "" };
 }
 export function validWebhookSecret(value: string | null) { const expected = telegramConfig().secret; if (!expected || !value) return false; return value.length === expected.length && timingSafeEqual(Buffer.from(value), Buffer.from(expected)); }
 export function hashTelegram(value: string) { const secret = process.env.ADMIN_IP_HMAC_SECRET ?? ""; if (secret.length < 32) throw new Error("Telegram identity hashing is unavailable."); return createHmac("sha256", secret).update(`telegram\0${value}`).digest("hex"); }
@@ -48,9 +70,12 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
   if (historyPage !== null) return history(chatId, user.id, historyPage);
   if (text === "HISTORY_BACK") return myGtree(chatId, user.id);
   if (text === "/start") return send(chatId, "Welcome to Green Tree. Choose an action below.");
+  if (text === "/buy") return buy(chatId);
+  if (text === "/connect") return connectWallet(chatId);
   if (text === "❔ Help") return send(chatId, "Choose an action from the menu below.");
   if (text === "My GTREE") return myGtree(chatId, user.id);
   if (text === "Purchase History") return history(chatId, user.id, 1);
+  if (text === "🔗 Connect Wallet") return connectWallet(chatId);
   if (text === "📈 Live Price") return price(chatId);
   if (text === "🧾 Recent Activity") return activity(chatId);
   if (text === "🛒 Buy GTREE") return buy(chatId);
@@ -61,7 +86,8 @@ export async function processTelegramUpdate(update: TelegramUpdate) {
 
 async function price(chatId: string) { const result = await getMarketSnapshot(); if (result.status !== "ready" || !result.data) return send(chatId, "Market data is currently unavailable."); const data = result.data; return send(chatId, `GTREE live market\nGTREE/USD: $${data.gtreeUsd}\nGTREE/SOL: ${data.priceSol} SOL\nSOL/USD: $${data.solUsd}\nStatus: ${result.stale ? "STALE" : "LIVE"}\nUpdated: ${data.fetchedAt}`, { inline_keyboard: [[{ text: "View Market", url: "https://gtree.land/market" }]] }); }
 async function activity(chatId: string) { const result = getFoundationTransactions({ view: "CONFIRMED", pageSize: 5 }); const rows = result.available ? result.items : []; const content = rows.length ? rows.map((row) => `${short(row.buyer)} · ${format(row.inputLamports)} SOL · ${format(row.outputTokenUnits)} GTREE\n${new Date(row.confirmedAt ?? row.createdAt).toLocaleString()}${row.signature ? `\nhttps://solscan.io/tx/${row.signature}` : ""}`).join("\n\n") : "No confirmed Foundation purchases have been recorded yet."; return send(chatId, content); }
-async function buy(chatId: string) { const config = telegramConfig(); if (!config.salesEnabled || resolveRuntimeSetting("purchaseMode") !== "FOUNDATION_DIRECT") return send(chatId, "Sales through Telegram are temporarily unavailable. You can still view the market or contact Support."); const inventory = await getFoundationInventorySnapshot().catch(() => null); return send(chatId, `Foundation Direct availability: ${inventory?.spendableGtree ?? "Unavailable"} GTREE`, config.miniAppUrl ? { inline_keyboard: [[{ text: "Open Buy App", web_app: { url: config.miniAppUrl } }]] } : undefined); }
+async function buy(chatId: string) { const config = telegramConfig(); if (!config.purchaseEnabled || resolveRuntimeSetting("purchaseMode") !== "FOUNDATION_DIRECT" || !config.purchaseUrl) return send(chatId, "Sales through Telegram are temporarily unavailable. You can still view the market or contact Support."); const inventory = await getFoundationInventorySnapshot().catch(() => null); return send(chatId, `Foundation Direct availability: ${inventory?.spendableGtree ?? "Unavailable"} GTREE`, { inline_keyboard: [[{ text: "🛒 Open Buy GTREE", web_app: { url: config.purchaseUrl } }]] }); }
+async function connectWallet(chatId: string) { const config = telegramConfig(); if (!config.connectUrl) return send(chatId, "Wallet connection is temporarily unavailable. Open Green Tree in a secure browser and try again."); return send(chatId, "Connect a Solana wallet to Green Tree. You will sign an ownership message only; never send a seed phrase or private key.", { inline_keyboard: [[{ text: "🔗 Connect Wallet", web_app: { url: config.connectUrl } }]] }); }
 
 async function myGtree(chatId: string, telegramUserId: number) {
   const wallet = getVerifiedTelegramWallet(String(telegramUserId));
@@ -91,9 +117,10 @@ function getConversation(userHash: string) { const row = getAdminDatabase().db.p
 function setConversation(userHash: string, chatId: string, username: string | undefined, state: ConversationState, payload: Record<string, string>) { const now = Date.now(); getAdminDatabase().db.prepare("INSERT INTO telegram_conversations (user_hash, chat_id, username, state, payload_json, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_hash) DO UPDATE SET chat_id=excluded.chat_id, username=excluded.username, state=excluded.state, payload_json=excluded.payload_json, expires_at=excluded.expires_at, updated_at=excluded.updated_at").run(userHash, chatId, username ?? null, state, JSON.stringify(payload), now + 20 * 60_000, now); }
 function clearConversation(userHash: string) { getAdminDatabase().db.prepare("DELETE FROM telegram_conversations WHERE user_hash = ?").run(userHash); }
 function send(chatId: string, text: string, reply_markup: Record<string, unknown> = menu()) { return telegramApi("sendMessage", { chat_id: chatId, text, reply_markup, disable_web_page_preview: true }); }
-function menu() { return { keyboard: [[{ text: "🛒 Buy GTREE" }, { text: "📈 Live Price" }], [{ text: "My GTREE" }, { text: "Purchase History" }], [{ text: "🧾 Recent Activity" }, { text: "🛟 Support" }], [{ text: "🌐 Open Green Tree", web_app: { url: telegramConfig().miniAppUrl || "https://gtree.land" } }, { text: "🟢 Service Status" }], [{ text: "❔ Help" }]], resize_keyboard: true }; }
+export function telegramMenu() { const config = telegramConfig(); return { keyboard: [[{ text: "🛒 Buy GTREE", web_app: config.purchaseUrl ? { url: config.purchaseUrl } : undefined }, { text: "📈 Live Price" }], [{ text: "🔗 Connect Wallet", web_app: config.connectUrl ? { url: config.connectUrl } : undefined }, { text: "My GTREE" }], [{ text: "Purchase History" }, { text: "🧾 Recent Activity" }], [{ text: "🛟 Support" }, { text: "🌐 Open Green Tree", web_app: { url: config.miniAppUrl } }], [{ text: "🟢 Service Status" }, { text: "❔ Help" }]], resize_keyboard: true }; }
+function menu() { return telegramMenu(); }
 function categories() { return { inline_keyboard: [[{ text: "🛒 Purchase issue", callback_data: "SUPPORT_PURCHASE" }, { text: "🛠 Technical issue", callback_data: "SUPPORT_WEBSITE" }], [{ text: "🌳 Token information", callback_data: "SUPPORT_GENERAL" }], [{ text: "↩️ Cancel", callback_data: "/cancel" }]] }; }
 function short(value: string) { return `${value.slice(0, 5)}…${value.slice(-4)}`; }
 function format(raw: string, decimals = 9) { const value = BigInt(raw); const scale = 10n ** BigInt(decimals); const whole = value / scale; const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 4).replace(/0+$/, ""); return fraction ? `${whole}.${fraction}` : whole.toString(); }
 export function parseHistoryPageCallback(value: string): number | null { const match = /^HISTORY_PAGE:([1-9]\d{0,5})$/.exec(value.trim()); if (!match) return null; const page = Number(match[1]); return page >= 1 && page <= 100_000 ? page : null; }
-export function validateInitData(initData: string) { const token = telegramConfig().token; if (!token || !initData) return null; const params = new URLSearchParams(initData); const hash = params.get("hash"); params.delete("hash"); const dataCheck = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("\n"); const secret = createHmac("sha256", "WebAppData").update(token).digest(); const expected = createHmac("sha256", secret).update(dataCheck).digest("hex"); if (!hash || hash.length !== expected.length || !timingSafeEqual(Buffer.from(hash), Buffer.from(expected))) return null; const authDate = Number(params.get("auth_date")); if (!Number.isFinite(authDate) || Date.now() - authDate * 1000 > 300_000) return null; const user = params.get("user"); return user ? { userHash: hashTelegram(JSON.parse(user).id.toString()), language: JSON.parse(user).language_code ?? null, sessionId: randomUUID(), expiresAt: Date.now() + 300_000 } : null; }
+export function validateInitData(initData: string) { const token = telegramConfig().token; if (!token || !initData) return null; const params = new URLSearchParams(initData); const hash = params.get("hash"); params.delete("hash"); const dataCheck = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("\n"); const secret = createHmac("sha256", "WebAppData").update(token).digest(); const expected = createHmac("sha256", secret).update(dataCheck).digest("hex"); if (!hash || hash.length !== expected.length || !timingSafeEqual(Buffer.from(hash), Buffer.from(expected))) return null; const authDate = Number(params.get("auth_date")); if (!Number.isFinite(authDate) || Date.now() - authDate * 1000 > 300_000) return null; try { const user = JSON.parse(params.get("user") ?? "") as { id?: number; username?: string; language_code?: string }; if (!Number.isSafeInteger(user.id) || user.id! < 0) return null; return { telegramUserId: String(user.id), userHash: hashTelegram(String(user.id)), username: user.username, language: user.language_code ?? null, sessionId: randomUUID(), expiresAt: Date.now() + 300_000 }; } catch { return null; } }

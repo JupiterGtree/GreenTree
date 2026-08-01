@@ -76,6 +76,20 @@ export function ensureTelegramSession(telegramUserId: string): string {
   return sessionId;
 }
 
+export function persistTelegramWebAppSession(input: { telegramUserId: string; sessionId: string; expiresAt: number; username?: string }): void {
+  if (!/^\d+$/.test(input.telegramUserId) || !/^[A-Za-z0-9_-]{16,80}$/.test(input.sessionId) || !Number.isFinite(input.expiresAt)) throw new Error("Invalid Telegram session.");
+  const db = getTelegramDatabase();
+  const now = Date.now();
+  db.prepare("INSERT INTO telegram_users (telegram_user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(telegram_user_id) DO UPDATE SET username=COALESCE(excluded.username, telegram_users.username), updated_at=excluded.updated_at").run(input.telegramUserId, input.username ?? null, now, now);
+  db.prepare("INSERT INTO telegram_sessions (id, telegram_user_id, expires_at, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET telegram_user_id=excluded.telegram_user_id, expires_at=excluded.expires_at").run(input.sessionId, input.telegramUserId, input.expiresAt, now);
+}
+
+export function resolveTelegramSessionUser(sessionId: string): string | null {
+  if (!/^[A-Za-z0-9_-]{16,80}$/.test(sessionId)) return null;
+  const row = getTelegramDatabase().prepare("SELECT telegram_user_id FROM telegram_sessions WHERE id = ? AND expires_at > ?").get(sessionId, Date.now()) as { telegram_user_id?: string } | undefined;
+  return row?.telegram_user_id ?? null;
+}
+
 export function getVerifiedTelegramWallet(telegramUserId: string): string | null {
   const row = getTelegramDatabase().prepare("SELECT wallet_address FROM telegram_verified_wallets WHERE telegram_user_id = ? ORDER BY verified_at DESC LIMIT 1").get(telegramUserId) as { wallet_address?: string } | undefined;
   return row?.wallet_address ?? null;
