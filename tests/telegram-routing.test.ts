@@ -19,7 +19,7 @@ test("global actions and callbacks bypass guided conversation states", async () 
 });
 
 test("conversation scope includes chat and admin authorization is numeric", async () => {
-  const { conversationKey, isAdminChat, isAuthorizedAdmin, isOperationsChat } = await import("../src/lib/telegram/server");
+  const { conversationKey, isAdminChat, isAuthorizedAdmin, isOperationsChat, classifyTelegramChat } = await import("../src/lib/telegram/server");
   assert.notEqual(conversationKey("user", "private"), conversationKey("user", "-1003788760826"));
   assert.equal(isAdminChat("-1003788760826"), true);
   assert.equal(isOperationsChat("-1004415591954"), true);
@@ -27,4 +27,16 @@ test("conversation scope includes chat and admin authorization is numeric", asyn
   assert.equal(isAuthorizedAdmin(456, true), false);
   assert.equal(isAuthorizedAdmin(456), true);
   assert.equal(isAuthorizedAdmin(999), false);
+  assert.equal(classifyTelegramChat("-1003788760826", "group"), "admin");
+  assert.equal(classifyTelegramChat("-1004415591954", "channel"), "operations");
+  assert.equal(classifyTelegramChat("-7", "group"), "other_group");
+});
+
+test("admin panel uses only admin callbacks and no public reply keyboard", async () => {
+  const { adminPanelMarkup } = await import("../src/lib/telegram/server");
+  const markup = adminPanelMarkup() as { inline_keyboard: Array<Array<{ callback_data: string }>> };
+  const callbacks = markup.inline_keyboard.flat().map((button) => button.callback_data);
+  assert.ok(callbacks.includes("admin:summary"));
+  assert.ok(callbacks.includes("admin:distribution:create"));
+  assert.ok(callbacks.every((value) => value.startsWith("admin:")));
 });
