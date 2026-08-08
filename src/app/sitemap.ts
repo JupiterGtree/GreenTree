@@ -13,6 +13,7 @@ const PUBLIC_PAGES: MetadataRoute.Sitemap = [
   { url: `${SITE_URL}/news`, changeFrequency: "daily", priority: 0.8 },
   { url: `${SITE_URL}/docs`, changeFrequency: "monthly", priority: 0.6 },
   { url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.4 },
+  { url: `${SITE_URL}/verify`, changeFrequency: "monthly", priority: 0.6 },
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
